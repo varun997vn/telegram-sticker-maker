@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatedExportCard } from './components/AnimatedExportCard.tsx';
+import type { AnimatedExportState } from './components/AnimatedExportCard.tsx';
 import { DropZone } from './components/DropZone.tsx';
 import { ExportCard } from './components/ExportCard.tsx';
 import type { ExportState } from './components/ExportCard.tsx';
@@ -6,13 +8,15 @@ import { StickerPreview } from './components/StickerPreview.tsx';
 import { TextCanvas } from './components/TextCanvas.tsx';
 import { TextLayerControls } from './components/TextLayerControls.tsx';
 import { TextLayerList } from './components/TextLayerList.tsx';
+import { TrimControls } from './components/TrimControls.tsx';
 import { APP_NAME, APP_TAGLINE } from './core/appInfo.ts';
+import { encodeAnimatedSticker } from './core/encode/animatedSticker.ts';
 import { encodeStaticSticker } from './core/encode/staticSticker.ts';
 import { stickerFileName } from './core/fileNames.ts';
 import type { FitMode } from './core/geometry.ts';
-import { loadImageSource, releaseImageSource } from './core/imageSource.ts';
-import type { ImageSource } from './core/imageSource.ts';
-import { STICKER_SPECS } from './core/specs.ts';
+import { describeSource, isVideo, loadSource, releaseSource } from './core/source.ts';
+import type { StickerSource } from './core/source.ts';
+import { MAX_ANIMATION_MS, STICKER_SPECS } from './core/specs.ts';
 import type { StickerTargetId } from './core/specs.ts';
 import type { TextLayer } from './core/text/model.ts';
 import {
@@ -23,18 +27,19 @@ import {
   removeLayer,
   updateLayer,
 } from './core/text/operations.ts';
+import { captureVideoPoster } from './core/videoPoster.ts';
+import type { DrawableSource } from './core/render/composite.ts';
 
-/** Stage 3 ships the still targets; the animated ones arrive with the encoder. */
 const STATIC_TARGETS: readonly StickerTargetId[] = ['telegram-static', 'whatsapp-static'];
+const ANIMATED_TARGETS: readonly StickerTargetId[] = ['telegram-video', 'whatsapp-animated'];
 
 type ExportStates = Partial<Record<StickerTargetId, ExportState>>;
+type AnimatedStates = Partial<Record<StickerTargetId, AnimatedExportState>>;
 
 /**
- * Results are stored against the settings that produced them. Anything from a
- * previous image, framing or caption is therefore never rendered: the cards
- * fall back to "encoding" in the very same commit that changes the settings,
- * rather than showing a stale size for a frame or two while the new encode
- * runs.
+ * Still results are stored against the settings that produced them, so a card
+ * falls back to "encoding" in the same commit that changes the settings rather
+ * than showing a stale size while the new encode runs.
  */
 interface ExportSession {
   readonly key: string;
@@ -43,39 +48,72 @@ interface ExportSession {
 
 const EMPTY_SESSION: ExportSession = { key: '', states: {} };
 
-/** Identifies everything an encode depends on, so results can be keyed to it. */
+interface Clip {
+  readonly startMs: number;
+  readonly endMs: number;
+  readonly frameRate: number;
+}
+
 function describeLayers(layers: readonly TextLayer[]): string {
   return layers.map((layer) => JSON.stringify(layer)).join('|');
 }
 
 export function App() {
-  const [source, setSource] = useState<ImageSource | null>(null);
+  const [source, setSource] = useState<StickerSource | null>(null);
   const [sourceGeneration, setSourceGeneration] = useState(0);
+  const [poster, setPoster] = useState<ImageBitmap | null>(null);
   const [fit, setFit] = useState<FitMode>('contain');
   const [layers, setLayers] = useState<readonly TextLayer[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [clip, setClip] = useState<Clip>({ startMs: 0, endMs: MAX_ANIMATION_MS, frameRate: 30 });
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<ExportSession>(EMPTY_SESSION);
+  const [animated, setAnimated] = useState<AnimatedStates>({});
 
-  const exportKey = source ? `${sourceGeneration}|${fit}|${describeLayers(layers)}` : '';
+  const video = source && isVideo(source) ? source : null;
+  // Video layouts are drawn against a still frame; images are drawn directly.
+  const drawable: DrawableSource | null =
+    source === null
+      ? null
+      : source.kind === 'image'
+        ? source
+        : poster
+          ? { width: poster.width, height: poster.height, bitmap: poster }
+          : null;
+
+  const exportKey = drawable ? `${sourceGeneration}|${fit}|${describeLayers(layers)}` : '';
   const exports = session.key === exportKey ? session.states : {};
   const selected = findLayer(layers, selectedId);
 
-  // Freeing the previous bitmap is a side effect, so it is kept out of the
-  // state updater, which React is free to call more than once.
-  const currentSource = useRef<ImageSource | null>(null);
+  const currentSource = useRef<StickerSource | null>(null);
+  const running = useRef<Partial<Record<StickerTargetId, AbortController>>>({});
 
   const handleFile = useCallback(async (file: File) => {
     setError(null);
     try {
-      const loaded = await loadImageSource(file);
+      const loaded = await loadSource(file);
       const previous = currentSource.current;
       currentSource.current = loaded;
 
       setSource(loaded);
       setSourceGeneration((generation) => generation + 1);
+      setAnimated({});
+      setPoster(null);
 
-      if (previous) releaseImageSource(previous);
+      if (isVideo(loaded)) {
+        setClip({
+          startMs: 0,
+          endMs: Math.min(loaded.durationMs, MAX_ANIMATION_MS),
+          frameRate: 30,
+        });
+        try {
+          setPoster(await captureVideoPoster(loaded, 0));
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : 'Could not read a frame from this video');
+        }
+      }
+
+      if (previous) releaseSource(previous);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not read that file');
     }
@@ -96,14 +134,13 @@ export function App() {
     setSelectedId((current) => (current === id ? null : current));
   }, []);
 
+  // Still exports are cheap, so they re-run on every edit.
   useEffect(() => {
-    if (!source) {
+    if (!drawable || video) {
       setSession(EMPTY_SESSION);
       return;
     }
 
-    // A later edit must never be overwritten by an encode started for an
-    // earlier one that happened to finish afterwards.
     let current = true;
     const key = exportKey;
 
@@ -114,7 +151,7 @@ export function App() {
         let state: ExportState;
         try {
           const result = await encodeStaticSticker({
-            source,
+            source: drawable,
             spec: STICKER_SPECS[id],
             fit,
             layers,
@@ -138,7 +175,71 @@ export function App() {
     return () => {
       current = false;
     };
-  }, [source, fit, layers, exportKey]);
+  }, [drawable, video, fit, layers, exportKey]);
+
+  /**
+   * Animated exports take seconds and load a 32 MB engine, so they run only
+   * when asked for rather than on every keystroke.
+   */
+  const generate = useCallback(
+    async (id: StickerTargetId) => {
+      if (!video) return;
+
+      running.current[id]?.abort();
+      const controller = new AbortController();
+      running.current[id] = controller;
+
+      setAnimated((previous) => ({ ...previous, [id]: { status: 'running', progress: null } }));
+
+      try {
+        const result = await encodeAnimatedSticker({
+          source: video,
+          spec: STICKER_SPECS[id],
+          fit,
+          layers,
+          trimStartMs: clip.startMs,
+          trimEndMs: clip.endMs,
+          frameRate: clip.frameRate,
+          signal: controller.signal,
+          onProgress: (progress) => {
+            if (controller.signal.aborted) return;
+            setAnimated((previous) => ({ ...previous, [id]: { status: 'running', progress } }));
+          },
+        });
+
+        if (controller.signal.aborted) return;
+        setAnimated((previous) => ({ ...previous, [id]: { status: 'done', result } }));
+      } catch (cause) {
+        if (controller.signal.aborted) {
+          setAnimated((previous) => ({ ...previous, [id]: { status: 'idle' } }));
+          return;
+        }
+        setAnimated((previous) => ({
+          ...previous,
+          [id]: {
+            status: 'failed',
+            message: cause instanceof Error ? cause.message : 'Encoding failed',
+          },
+        }));
+      } finally {
+        if (running.current[id] === controller) delete running.current[id];
+      }
+    },
+    [video, fit, layers, clip],
+  );
+
+  const updateClip = useCallback((patch: Partial<Clip>) => {
+    setClip((previous) => {
+      const next = { ...previous, ...patch };
+      // Keep the window ordered and at least a tenth of a second long.
+      if (next.endMs <= next.startMs) {
+        return patch.startMs !== undefined
+          ? { ...next, endMs: next.startMs + 100 }
+          : { ...next, startMs: Math.max(0, next.endMs - 100) };
+      }
+      return next;
+    });
+  }, []);
 
   return (
     <main className="app">
@@ -156,17 +257,17 @@ export function App() {
         )}
         {source && (
           <p className="app__source" data-testid="source-info">
-            {source.fileName} — {source.width}x{source.height}
+            {describeSource(source)}
           </p>
         )}
       </section>
 
-      {source && (
+      {drawable && (
         <>
           <section className="editor" aria-label="Editor">
             <div className="editor__design">
               <TextCanvas
-                source={source}
+                source={drawable}
                 fit={fit}
                 layers={layers}
                 selectedId={selectedId}
@@ -196,6 +297,16 @@ export function App() {
                   </label>
                 ))}
               </fieldset>
+
+              {video && (
+                <TrimControls
+                  source={video}
+                  startMs={clip.startMs}
+                  endMs={clip.endMs}
+                  frameRate={clip.frameRate}
+                  onChange={updateClip}
+                />
+              )}
 
               <div className="panel">
                 <div className="panel__header">
@@ -232,21 +343,32 @@ export function App() {
             data-testid="exports"
             data-export-key={exportKey}
           >
-            {STATIC_TARGETS.map((id) => (
-              <ExportCard
-                key={id}
-                spec={STICKER_SPECS[id]}
-                state={exports[id] ?? { status: 'encoding' }}
-                fileName={stickerFileName(source.fileName, STICKER_SPECS[id])}
-              >
-                <StickerPreview
-                  source={source}
-                  spec={STICKER_SPECS[id]}
-                  fit={fit}
-                  layers={layers}
-                />
-              </ExportCard>
-            ))}
+            {video
+              ? ANIMATED_TARGETS.map((id) => (
+                  <AnimatedExportCard
+                    key={id}
+                    spec={STICKER_SPECS[id]}
+                    state={animated[id] ?? { status: 'idle' }}
+                    fileName={stickerFileName(source?.fileName ?? 'sticker', STICKER_SPECS[id])}
+                    onGenerate={() => void generate(id)}
+                    onCancel={() => running.current[id]?.abort()}
+                  />
+                ))
+              : STATIC_TARGETS.map((id) => (
+                  <ExportCard
+                    key={id}
+                    spec={STICKER_SPECS[id]}
+                    state={exports[id] ?? { status: 'encoding' }}
+                    fileName={stickerFileName(source?.fileName ?? 'sticker', STICKER_SPECS[id])}
+                  >
+                    <StickerPreview
+                      source={drawable}
+                      spec={STICKER_SPECS[id]}
+                      fit={fit}
+                      layers={layers}
+                    />
+                  </ExportCard>
+                ))}
           </section>
         </>
       )}

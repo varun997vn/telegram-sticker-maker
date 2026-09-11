@@ -94,79 +94,17 @@ export function formatRate(frameRate: number): string {
 }
 
 /**
- * The fastest `-cpu-used` that is safe alongside `-deadline realtime`.
+ * VP9 is not encoded here.
  *
- * Above this, libvpx's realtime speed features take a code path that traps in
- * this wasm build — ffmpeg dies with "memory access out of bounds" partway
- * through the first frame. Measured against @ffmpeg/core 0.12.10: realtime at
- * cpu-used 0 and 2 encode fine, 4 through 8 all crash, and `-deadline good` is
- * unaffected at every speed. Requests above the limit are clamped rather than
- * rejected: the caller wanted "as fast as possible", and this is it.
- */
-export const MAX_REALTIME_CPU_USED = 2;
-
-export interface EncodeWebMOptions {
-  readonly frameRate: number;
-  /** Constant-quality level; lower is better, 0-63 for VP9. */
-  readonly crf: number;
-  /**
-   * How long libvpx may think about each frame. `good` is the default
-   * trade-off; `realtime` is dramatically faster, which matters a great deal
-   * when the encoder is single-threaded wasm.
-   */
-  readonly deadline?: 'best' | 'good' | 'realtime';
-  /** Speed/quality dial, 0-8 for VP9; higher is faster and worse. */
-  readonly cpuUsed?: number;
-  readonly outputFile?: string;
-  readonly inputPattern?: string;
-}
-
-/**
- * Encode a PNG sequence to the VP9 WebM Telegram expects.
+ * The libvpx inside @ffmpeg/core 0.12.10 traps with "memory access out of
+ * bounds" on any non-trivial input: `-crf` alone crashes it, `-cpu-used` of 2
+ * or more crashes it, `-deadline realtime` crashes it, and at 512x512 with
+ * real content even plain defaults crash. Flat single-colour frames encode
+ * fine, which is why the fault only appears once real video reaches it.
  *
- * `yuva420p` keeps the alpha channel, `-b:v 0` puts libvpx into constant
- * quality mode so `-crf` is the only size control, and `-an` guarantees no
- * audio stream — Telegram rejects a video sticker that has one.
+ * Telegram's video stickers are therefore encoded by the browser's own
+ * VideoEncoder and muxed by `formats/webmWriter.ts`. See `encode/vp9Encoder.ts`.
  */
-export function buildEncodeWebMArgs(options: EncodeWebMOptions): string[] {
-  const {
-    frameRate,
-    crf,
-    deadline = 'good',
-    cpuUsed = 4,
-    outputFile = 'output.webm',
-    inputPattern = FRAME_PATTERN,
-  } = options;
-
-  const safeCpuUsed =
-    deadline === 'realtime' ? Math.min(cpuUsed, MAX_REALTIME_CPU_USED) : cpuUsed;
-
-  // Everything before the output filename applies to that output. Appending
-  // options after it makes ffmpeg read them as settings for a second output
-  // that does not exist.
-  return [
-    '-framerate',
-    formatRate(frameRate),
-    '-i',
-    inputPattern,
-    '-c:v',
-    'libvpx-vp9',
-    '-pix_fmt',
-    'yuva420p',
-    '-b:v',
-    '0',
-    '-crf',
-    String(crf),
-    '-deadline',
-    deadline,
-    '-cpu-used',
-    String(safeCpuUsed),
-    '-an',
-    '-loop',
-    '0',
-    outputFile,
-  ];
-}
 
 export interface EncodeAnimatedWebPOptions {
   readonly frameRate: number;

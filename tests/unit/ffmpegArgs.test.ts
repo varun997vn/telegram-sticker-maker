@@ -1,9 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   FRAME_PATTERN,
-  MAX_REALTIME_CPU_USED,
   buildEncodeAnimatedWebPArgs,
-  buildEncodeWebMArgs,
   buildExtractFramesArgs,
   formatRate,
   frameFileNames,
@@ -161,86 +159,15 @@ describe('buildExtractFramesArgs', () => {
   });
 });
 
-describe('buildEncodeWebMArgs', () => {
-  it('encodes VP9, which is the only codec Telegram accepts', () => {
-    expect(valueAfter(buildEncodeWebMArgs({ frameRate: 30, crf: 32 }), '-c:v')).toBe('libvpx-vp9');
-  });
-
-  it('keeps the alpha channel', () => {
-    expect(valueAfter(buildEncodeWebMArgs({ frameRate: 30, crf: 32 }), '-pix_fmt')).toBe('yuva420p');
-  });
-
-  it('puts libvpx into constant quality mode, so crf is the only size control', () => {
-    const args = buildEncodeWebMArgs({ frameRate: 30, crf: 32 });
-    expect(valueAfter(args, '-b:v')).toBe('0');
-    expect(valueAfter(args, '-crf')).toBe('32');
-  });
-
-  it('produces no audio stream, which Telegram rejects', () => {
-    expect(buildEncodeWebMArgs({ frameRate: 30, crf: 32 })).toContain('-an');
-  });
-
-  it('marks the video to loop', () => {
-    expect(valueAfter(buildEncodeWebMArgs({ frameRate: 30, crf: 32 }), '-loop')).toBe('0');
-  });
-
-  it('sets the input frame rate, not just the output one', () => {
-    const args = buildEncodeWebMArgs({ frameRate: 24, crf: 32 });
-    expect(args.indexOf('-framerate')).toBeLessThan(args.indexOf('-i'));
-    expect(valueAfter(args, '-framerate')).toBe('24');
-  });
-
-  it('writes to the given output file', () => {
-    expect(buildEncodeWebMArgs({ frameRate: 30, crf: 32, outputFile: 'sticker.webm' }).at(-1)).toBe(
-      'sticker.webm',
-    );
-  });
-
+describe('buildEncodeAnimatedWebPArgs', () => {
   it('puts every option before the output file', () => {
     // ffmpeg applies options to the output that follows them, so anything
     // after the filename is read as settings for a second, missing output.
-    const args = buildEncodeWebMArgs({ frameRate: 30, crf: 32, outputFile: 'sticker.webm' });
-    const flags = args.filter((arg) => arg.startsWith('-'));
-    for (const flag of flags) {
-      expect(args.indexOf(flag)).toBeLessThan(args.length - 1);
-    }
+    const args = buildEncodeAnimatedWebPArgs({ frameRate: 24, quality: 75, outputFile: 's.webp' });
+    expect(args.at(-1)).toBe('s.webp');
+    expect(args.filter((arg) => arg.startsWith('-')).every((flag) => args.indexOf(flag) < args.length - 1)).toBe(true);
   });
 
-  it('exposes the speed dials libvpx needs to be usable in wasm', () => {
-    const args = buildEncodeWebMArgs({ frameRate: 30, crf: 32, deadline: 'good', cpuUsed: 8 });
-    expect(valueAfter(args, '-deadline')).toBe('good');
-    expect(valueAfter(args, '-cpu-used')).toBe('8');
-  });
-
-  it('clamps cpu-used in realtime mode, where faster settings crash the wasm build', () => {
-    // libvpx's realtime speed features trap above this point; see
-    // MAX_REALTIME_CPU_USED. The clamp is the only thing standing between a
-    // caller asking for maximum speed and a dead worker.
-    for (const requested of [4, 5, 6, 7, 8]) {
-      const args = buildEncodeWebMArgs({
-        frameRate: 30,
-        crf: 32,
-        deadline: 'realtime',
-        cpuUsed: requested,
-      });
-      expect(Number(valueAfter(args, '-cpu-used'))).toBe(MAX_REALTIME_CPU_USED);
-    }
-  });
-
-  it('leaves a safe realtime speed alone', () => {
-    const args = buildEncodeWebMArgs({ frameRate: 30, crf: 32, deadline: 'realtime', cpuUsed: 0 });
-    expect(valueAfter(args, '-cpu-used')).toBe('0');
-  });
-
-  it('does not clamp outside realtime mode', () => {
-    for (const deadline of ['good', 'best'] as const) {
-      const args = buildEncodeWebMArgs({ frameRate: 30, crf: 32, deadline, cpuUsed: 8 });
-      expect(valueAfter(args, '-cpu-used')).toBe('8');
-    }
-  });
-});
-
-describe('buildEncodeAnimatedWebPArgs', () => {
   it('uses the animated WebP encoder, not the still one', () => {
     expect(valueAfter(buildEncodeAnimatedWebPArgs({ frameRate: 24, quality: 75 }), '-c:v')).toBe(
       'libwebp_anim',

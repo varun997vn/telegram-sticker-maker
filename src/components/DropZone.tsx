@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { IMAGE_ACCEPT, isSupportedImageType } from '../core/imageSource.ts';
+import { SOURCE_ACCEPT, isSupportedSource } from '../core/source.ts';
 
 interface DropZoneProps {
   readonly onFile: (file: File) => void;
@@ -25,7 +25,7 @@ export function DropZone({ onFile, disabled = false }: DropZoneProps) {
     const onPaste = (event: ClipboardEvent) => {
       const items = event.clipboardData?.files;
       const file = items?.[0];
-      if (file && isSupportedImageType(file.type, file.name)) {
+      if (file && isSupportedSource(file.type, file.name)) {
         event.preventDefault();
         onFile(file);
       }
@@ -55,7 +55,7 @@ export function DropZone({ onFile, disabled = false }: DropZoneProps) {
         className="dropzone__input"
         data-testid="file-input"
         type="file"
-        accept={IMAGE_ACCEPT}
+        accept={SOURCE_ACCEPT}
         disabled={disabled}
         onChange={(event) => {
           handleFiles(event.target.files);
@@ -69,9 +69,9 @@ export function DropZone({ onFile, disabled = false }: DropZoneProps) {
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
       >
-        Choose an image
+        Choose an image or video
       </button>
-      <p className="dropzone__hint">or drop one here, or paste from the clipboard</p>
+      <p className="dropzone__hint">or drop one here, or paste an image from the clipboard</p>
     </div>
   );
 }

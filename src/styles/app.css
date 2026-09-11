@@ -477,3 +477,55 @@ input[type='range'] {
   width: 100%;
   accent-color: var(--accent);
 }
+
+/* --- Animated export cards --- */
+
+.controls__group--stack {
+  display: grid;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.controls__group--stack .field {
+  width: 100%;
+}
+
+.controls__note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.card__placeholder {
+  margin: 0;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.card__actions {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.card__actions button {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #202530;
+  cursor: pointer;
+}
+
+.card__actions button:hover {
+  border-color: var(--accent);
+}
+
+video.preview__canvas,
+img.preview__canvas {
+  max-width: 100%;
+  max-height: 200px;
+  width: auto;
+  height: auto;
+}
