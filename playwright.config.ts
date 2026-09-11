@@ -24,7 +24,9 @@ export default defineConfig({
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: {
-    command: 'npm run build && npm run preview -- --port 4173 --host 127.0.0.1',
+    // The harness entry point is only emitted for this build.
+    command:
+      'INCLUDE_TEST_HARNESS=1 npm run build && npm run preview -- --port 4173 --host 127.0.0.1',
     url: 'http://127.0.0.1:4173/telegram-sticker-maker/',
     reuseExistingServer: !process.env.CI,
     timeout: 180_000,
