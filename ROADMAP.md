@@ -226,6 +226,16 @@ Other notes:
 - **Animated exports run on request, not on every edit.** They take seconds and
   fetch a 32 MB engine, so each card generates only when asked, reports its
   phase while working, and can be cancelled.
+- **The search spends the whole frame-rate ladder before giving up.** An
+  earlier cap of three rounds meant it could stop with rungs untried and hand
+  back an oversized file — CI caught it returning 264 KB against a 256 KB
+  limit. Frame count is the dial that reliably shrinks VP9 output: the
+  browser's encoder treats a target bitrate as a suggestion, and asked for
+  154 kbit/s on dense noise it produced roughly six times that.
+- **Some content genuinely cannot fit.** Three seconds of pure noise at
+  512×384 is beyond VP9 at 256 KB on any encoder measured. The app degrades as
+  far as the ladder goes, then says so and suggests a shorter or calmer clip,
+  rather than silently handing over a sticker the platform will reject.
 
 ### Stage 6 — Sticker pack export ✅
 
