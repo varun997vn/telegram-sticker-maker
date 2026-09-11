@@ -139,7 +139,25 @@ test('the result is previewed in the card once it exists', async ({ page }) => {
   await openWith(page, video);
   await generate(page, whatsappAnimated.id);
 
-  await expect(page.getByTestId(`result-${whatsappAnimated.id}`)).toBeVisible();
+  const preview = page.getByTestId(`result-${whatsappAnimated.id}`);
+  await expect(preview).toBeAttached();
+
+  // Assert the browser actually decoded the sticker rather than that the
+  // element occupies space: an image that has not finished decoding has no
+  // intrinsic size yet, which makes a visibility check a race under load.
+  await expect
+    .poll(
+      async () =>
+        await preview.evaluate((element) =>
+          element instanceof HTMLImageElement
+            ? element.naturalWidth
+            : element instanceof HTMLVideoElement
+              ? element.videoWidth
+              : 0,
+        ),
+      { timeout: 30_000 },
+    )
+    .toBe(512);
 });
 
 test('the card reports the frames and rate it settled on', async ({ page }) => {

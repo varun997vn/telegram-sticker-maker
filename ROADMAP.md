@@ -17,7 +17,7 @@ a time, with sign-off before the next one starts.
 | 3 | Text overlay editor | ✅ Done |
 | 4 | ffmpeg.wasm integration and video frame extraction | ✅ Done |
 | 5 | Animated sticker export | ✅ Done |
-| 6 | Sticker pack export | ⬜ Not started |
+| 6 | Sticker pack export | ✅ Done |
 | 7 | Polish, docs, accessibility | ⬜ Not started |
 | 8 | Background removal (optional) | ⬜ Not started |
 
@@ -227,13 +227,36 @@ Other notes:
   fetch a 32 MB engine, so each card generates only when asked, reports its
   phase while working, and can be cancelled.
 
-### Stage 6 — Sticker pack export
+### Stage 6 — Sticker pack export ✅
 
-- [ ] Multi-sticker gallery
-- [ ] ZIP export
-- [ ] WhatsApp `contents.json` and 96×96 tray icon
-- [ ] Telegram import metadata
-- [ ] Tests on the archive contents
+- [x] A gallery holding stickers from several sources, with per-sticker emoji,
+      reordering and removal
+- [x] ZIP export, written by this app rather than a dependency
+- [x] WhatsApp `contents.json` and a generated 96×96 tray icon
+- [x] A Telegram index and a README explaining how to install what is inside
+- [x] Pack validation reported rather than enforced
+- [x] 54 unit tests and 14 browser tests, the archives checked by extracting
+      them with the system `unzip`
+
+Notes on the design:
+
+- **The ZIP writer stores rather than deflates.** Everything in a pack —
+  WebP, WebM, PNG — is already compressed, so storing keeps the writer small
+  and avoids a compression dependency. Output is deterministic, which makes
+  the tests exact.
+- **Archives are verified with the system `unzip`, not a reader written
+  alongside the writer.** An independent implementation accepting the output
+  says far more than self-consistency would.
+- **The tray icon is generated, not requested.** It comes from the first
+  sticker in the pack, scaled down until it fits the 50 KB budget, because one
+  more file to supply is one more thing between the user and a finished pack.
+- **Telegram has no file-based import for third-party tools.** Packs are made
+  by sending files to @Stickers, so `telegram.json` is written as an index and
+  says so in its own `note` field; the README gives the real instructions.
+- **Pack problems are reported, not enforced.** A single sticker is a
+  reasonable thing to export even though WhatsApp will not install a pack of
+  fewer than three, so that is a warning; a sticker over its byte limit is an
+  error and blocks the build.
 
 ### Stage 7 — Polish
 

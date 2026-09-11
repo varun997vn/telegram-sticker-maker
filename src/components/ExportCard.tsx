@@ -12,6 +12,7 @@ interface ExportCardProps {
   readonly spec: StickerSpec;
   readonly state: ExportState;
   readonly fileName: string;
+  readonly onAddToPack?: () => void;
   readonly children?: React.ReactNode;
 }
 
@@ -32,7 +33,7 @@ function useObjectUrl(blob: Blob | null): string | null {
   return url;
 }
 
-export function ExportCard({ spec, state, fileName, children }: ExportCardProps) {
+export function ExportCard({ spec, state, fileName, onAddToPack, children }: ExportCardProps) {
   const result = state.status === 'done' ? state.result : null;
   const url = useObjectUrl(result?.blob ?? null);
 
@@ -87,18 +88,29 @@ export function ExportCard({ spec, state, fileName, children }: ExportCardProps)
         </ul>
       )}
 
-      <a
-        className="card__download"
-        data-testid={`download-${spec.id}`}
-        href={url ?? undefined}
-        download={fileName}
-        aria-disabled={url === null}
-        onClick={(event) => {
-          if (url === null) event.preventDefault();
-        }}
-      >
-        Download {fileName}
-      </a>
+      <div className="card__actions">
+        <button
+          type="button"
+          data-testid={`add-to-pack-${spec.id}`}
+          disabled={!ok || !onAddToPack}
+          onClick={() => onAddToPack?.()}
+        >
+          Add to pack
+        </button>
+
+        <a
+          className="card__download"
+          data-testid={`download-${spec.id}`}
+          href={url ?? undefined}
+          download={fileName}
+          aria-disabled={url === null}
+          onClick={(event) => {
+            if (url === null) event.preventDefault();
+          }}
+        >
+          Download
+        </a>
+      </div>
     </article>
   );
 }
