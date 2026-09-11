@@ -192,6 +192,62 @@ export async function dragOnCanvas(
   });
 }
 
+/**
+ * How far down the sticker the first matching pixel appears, as a fraction of
+ * its height, or 1 when there is none.
+ *
+ * Measuring where the text is beats counting pixels inside a fixed band: the
+ * band has to be picked from assumed font metrics, and a different font or a
+ * little antialiasing noise moves the count without changing the behaviour
+ * under test.
+ */
+export async function topmostRow(
+  page: Page,
+  targetId: string,
+  colour: ColourTest,
+): Promise<number> {
+  return await page.evaluate(
+    async ({ targetId: id, colour: test }) => {
+      const anchor = document.querySelector<HTMLAnchorElement>(`[data-testid="download-${id}"]`);
+      const href = anchor?.getAttribute('href');
+      if (!href) throw new Error(`No download URL for ${id}`);
+
+      const blob = await (await fetch(href)).blob();
+      const bitmap = await createImageBitmap(blob);
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+      const context = canvas.getContext('2d');
+      if (!context) throw new Error('No 2D context available');
+      context.drawImage(bitmap, 0, 0);
+
+      const { data } = context.getImageData(0, 0, bitmap.width, bitmap.height);
+
+      for (let y = 0; y < bitmap.height; y += 1) {
+        // A handful of matching pixels in a row, so a stray artefact from the
+        // lossy encode does not register as the top of the text.
+        let inRow = 0;
+        for (let x = 0; x < bitmap.width; x += 1) {
+          const i = (y * bitmap.width + x) * 4;
+          const r = data[i] as number;
+          const g = data[i + 1] as number;
+          const b = data[i + 2] as number;
+          const a = data[i + 3] as number;
+          if (
+            a >= 128 &&
+            r >= test.r[0] && r <= test.r[1] &&
+            g >= test.g[0] && g <= test.g[1] &&
+            b >= test.b[0] && b <= test.b[1]
+          ) {
+            inRow += 1;
+            if (inRow >= 3) return y / bitmap.height;
+          }
+        }
+      }
+      return 1;
+    },
+    { targetId, colour },
+  );
+}
+
 /** Add a text layer and wait for the exports to reflect it. */
 export async function addText(page: Page, text: string): Promise<void> {
   await edit(page, async () => {

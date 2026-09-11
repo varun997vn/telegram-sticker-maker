@@ -3,11 +3,12 @@ import { SOURCE_ACCEPT, isSupportedSource } from '../core/source.ts';
 
 interface DropZoneProps {
   readonly onFile: (file: File) => void;
+  readonly onSample?: () => void;
   readonly disabled?: boolean;
 }
 
 /** Accepts a file by drop, by picker, or by paste from the clipboard. */
-export function DropZone({ onFile, disabled = false }: DropZoneProps) {
+export function DropZone({ onFile, onSample, disabled = false }: DropZoneProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
 
@@ -55,6 +56,7 @@ export function DropZone({ onFile, disabled = false }: DropZoneProps) {
         className="dropzone__input"
         data-testid="file-input"
         type="file"
+        aria-label="Choose an image or video file"
         accept={SOURCE_ACCEPT}
         disabled={disabled}
         onChange={(event) => {
@@ -63,14 +65,27 @@ export function DropZone({ onFile, disabled = false }: DropZoneProps) {
           event.target.value = '';
         }}
       />
-      <button
-        type="button"
-        className="dropzone__button"
-        disabled={disabled}
-        onClick={() => inputRef.current?.click()}
-      >
-        Choose an image or video
-      </button>
+      <div className="dropzone__actions">
+        <button
+          type="button"
+          className="dropzone__button"
+          disabled={disabled}
+          onClick={() => inputRef.current?.click()}
+        >
+          Choose an image or video
+        </button>
+        {onSample && (
+          <button
+            type="button"
+            className="dropzone__secondary"
+            data-testid="load-sample"
+            disabled={disabled}
+            onClick={onSample}
+          >
+            Try an example
+          </button>
+        )}
+      </div>
       <p className="dropzone__hint">or drop one here, or paste an image from the clipboard</p>
     </div>
   );

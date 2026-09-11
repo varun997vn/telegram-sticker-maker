@@ -621,3 +621,142 @@ img.preview__canvas {
   opacity: 0.4;
   cursor: not-allowed;
 }
+
+/* --- Focus, motion and small screens --- */
+
+:where(a, button, input, select, textarea, canvas, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The pointer-driven canvas needs a visible focus ring of its own, since it
+   is reachable by keyboard and moves layers with the arrow keys. */
+.design__canvas:focus-visible {
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.dropzone__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.dropzone__secondary {
+  padding: 10px 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #202530;
+  cursor: pointer;
+}
+
+.dropzone__secondary:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.app__crash {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.app__crash-detail {
+  overflow-x: auto;
+  width: 100%;
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #11141a;
+  color: #ff9a8a;
+  font-size: 0.85rem;
+}
+
+.app__crash button {
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #08111d;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Nothing may push the page sideways: every wide child either wraps or
+   scrolls inside its own box. */
+html,
+body {
+  overflow-x: hidden;
+}
+
+.app {
+  overflow-x: clip;
+}
+
+@media (max-width: 560px) {
+  .app {
+    padding-block: 20px;
+  }
+
+  .exports {
+    grid-template-columns: 1fr;
+  }
+
+  .card__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .card__actions {
+    grid-template-columns: 1fr;
+  }
+
+  .pack__item {
+    grid-template-columns: 48px minmax(0, 1fr);
+    grid-template-areas:
+      'thumb details'
+      'actions actions';
+  }
+
+  .pack__thumb {
+    width: 48px;
+    height: 48px;
+    grid-area: thumb;
+  }
+
+  .pack__details {
+    grid-area: details;
+  }
+
+  .pack__item .layers__actions {
+    grid-area: actions;
+    justify-content: flex-end;
+  }
+
+  .field-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 400px) {
+  .controls__group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dropzone {
+    padding: 16px 8px;
+  }
+}

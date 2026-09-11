@@ -15,6 +15,7 @@ import {
   dragOnCanvas,
   edit,
   setControl,
+  topmostRow,
   upload,
 } from './helpers/sticker.ts';
 
@@ -134,20 +135,18 @@ test('uppercase is applied to what is drawn, not just to the input', async ({ pa
 });
 
 test('newlines stack extra lines above the original', async ({ page }) => {
-  // The default caption is a single line near the bottom, so this band sits
-  // clear above it and is empty until further lines are added.
-  const ABOVE = { x0: 0, y0: 0.55, x1: 1, y1: 0.72 } as const;
-
   await makeRedText(page, 'HELLO');
-  const oneLine = await countPixels(page, target, RED);
-  expect(await countPixels(page, target, RED, ABOVE)).toBe(0);
+  const oneLineTop = await topmostRow(page, target, RED);
+  const oneLineCount = await countPixels(page, target, RED);
 
   await edit(page, async () => {
     await page.getByTestId('text-content').fill('HELLO\nHELLO\nHELLO');
   });
 
-  expect(await countPixels(page, target, RED, ABOVE)).toBeGreaterThan(50);
-  expect(await countPixels(page, target, RED)).toBeGreaterThan(oneLine * 2);
+  // Three lines centred on the same point reach a line height higher than one
+  // does, and cover roughly three times as much of the sticker.
+  expect(await topmostRow(page, target, RED)).toBeLessThan(oneLineTop - 0.08);
+  expect(await countPixels(page, target, RED)).toBeGreaterThan(oneLineCount * 2);
 });
 
 test('layers can be reordered, and the front layer wins the overlap', async ({ page }) => {

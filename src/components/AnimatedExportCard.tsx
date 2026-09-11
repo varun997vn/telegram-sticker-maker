@@ -16,6 +16,8 @@ interface AnimatedExportCardProps {
   readonly onGenerate: () => void;
   readonly onCancel: () => void;
   readonly onAddToPack?: () => void;
+  /** Why this browser cannot produce this target, if it cannot. */
+  readonly unsupportedReason?: string | null;
 }
 
 const PHASE_LABELS: Record<AnimatedProgress['phase'], string> = {
@@ -61,6 +63,7 @@ export function AnimatedExportCard({
   onGenerate,
   onCancel,
   onAddToPack,
+  unsupportedReason = null,
 }: AnimatedExportCardProps) {
   const result = state.status === 'done' ? state.result : null;
   const url = useObjectUrl(result?.blob ?? null);
@@ -119,12 +122,18 @@ export function AnimatedExportCard({
 
       <p
         className={`card__status card__status--${
-          state.status === 'running' ? 'busy' : ok ? 'ok' : state.status === 'idle' ? 'busy' : 'error'
+          state.status === 'running'
+            ? 'busy'
+            : ok
+              ? 'ok'
+              : state.status === 'idle' && unsupportedReason === null
+                ? 'busy'
+                : 'error'
         }`}
         data-testid={`status-${spec.id}`}
         role="status"
       >
-        {state.status === 'idle' && 'Ready to generate'}
+        {state.status === 'idle' && (unsupportedReason ?? 'Ready to generate')}
         {state.status === 'running' && describeProgress(state.progress)}
         {state.status === 'failed' && state.message}
         {state.status === 'done' && (ok ? 'Meets every requirement' : issues[0]?.message)}
@@ -144,7 +153,12 @@ export function AnimatedExportCard({
             Cancel
           </button>
         ) : (
-          <button type="button" data-testid={`generate-${spec.id}`} onClick={onGenerate}>
+          <button
+            type="button"
+            data-testid={`generate-${spec.id}`}
+            disabled={unsupportedReason !== null}
+            onClick={onGenerate}
+          >
             {result ? 'Regenerate' : 'Generate'}
           </button>
         )}
