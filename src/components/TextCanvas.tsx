@@ -22,6 +22,8 @@ interface TextCanvasProps {
   readonly fit: FitMode;
   readonly layers: readonly TextLayer[];
   readonly selectedId: string | null;
+  /** Redraw every frame, for a source that is itself moving. */
+  readonly animate?: boolean;
   readonly onSelect: (id: string | null) => void;
   readonly onMove: (id: string, x: number, y: number) => void;
 }
@@ -43,19 +45,49 @@ export function TextCanvas({
   fit,
   layers,
   selectedId,
+  animate = false,
   onSelect,
   onMove,
 }: TextCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
 
+  // The animation loop reads the latest props through a ref so that changing a
+  // caption does not restart it.
+  const frameRef = useRef({ source, fit, layers });
+  frameRef.current = { source, fit, layers };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
     resizeCanvas(canvas, DESIGN_SIZE);
-    drawStickerFrame(get2dContext(canvas), { source, size: DESIGN_SIZE, fit, layers });
-  }, [source, fit, layers]);
+    const context = get2dContext(canvas);
+
+    const draw = () => {
+      const current = frameRef.current;
+      drawStickerFrame(context, {
+        source: current.source,
+        size: DESIGN_SIZE,
+        fit: current.fit,
+        layers: current.layers,
+      });
+    };
+
+    if (!animate) {
+      draw();
+      return;
+    }
+
+    let handle = 0;
+    const tick = () => {
+      draw();
+      handle = requestAnimationFrame(tick);
+    };
+    handle = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(handle);
+  }, [animate, source, fit, layers]);
 
   /** Normalised canvas coordinates for a pointer event. */
   const normalise = useCallback((event: ReactPointerEvent<HTMLCanvasElement>) => {

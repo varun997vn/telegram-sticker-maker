@@ -199,7 +199,7 @@ test('VP9 dimensions stay even, which the codec requires', async ({ page }) => {
   expect(result.issues).toEqual([]);
 });
 
-test('the animation is trimmed to three seconds however long the source is', async ({ page }) => {
+test('the animation plays within three seconds however long the source is', async ({ page }) => {
   await harness(page);
   // Six seconds at 8 fps.
   const frames = Array.from({ length: 48 }, (_, i) => simpleFrame(320, 240, i, 48));
@@ -215,6 +215,82 @@ test('the animation is trimmed to three seconds however long the source is', asy
   const info = parseWebP(Buffer.from(result.base64, 'base64'));
   expect(info.durationMs).toBeLessThanOrEqual(3000 + 1);
   expect(result.issues).toEqual([]);
+});
+
+test('a long source is sampled across its whole length, not cut short', async ({ page }) => {
+  await harness(page);
+
+  // Eight seconds made of six distinct colour blocks. Which of them survive
+  // into the sticker says exactly which part of the source was used.
+  const palette = [
+    [220, 30, 30],
+    [30, 220, 30],
+    [30, 30, 220],
+    [220, 220, 30],
+    [220, 30, 220],
+    [30, 220, 220],
+  ] as const;
+
+  const perBlock = 8;
+  const frames = palette.flatMap((colour) =>
+    Array.from({ length: perBlock }, () =>
+      encodePNG(320, 240, () => [colour[0], colour[1], colour[2], 255]),
+    ),
+  );
+  const fixture = await makeVideo(page, frames, (palette.length * perBlock) / 8);
+
+  const result = await encode(page, {
+    base64: fixture.base64,
+    fileName: 'long.webm',
+    mimeType: 'video/webm',
+    targetId: 'telegram-video',
+  });
+  expect(result.issues).toEqual([]);
+
+  // Read the finished sticker back through the app's own extractor rather
+  // than decoding the container by hand.
+  const sampled = await page.evaluate(async (base64) => {
+    const plan = window.__sticker!.planFrames({
+      sourceDurationMs: 3000,
+      frameRate: 12,
+      maxDurationMs: 3000,
+      maxFrameRate: 30,
+    });
+    return await window.__sticker!.extract({
+      base64,
+      fileName: 'sticker.webm',
+      mimeType: 'video/webm',
+      plan,
+      size: { width: 256, height: 192 },
+    });
+  }, result.base64);
+
+  const nearest = (pixel: readonly number[]) => {
+    let best = -1;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    palette.forEach((colour, index) => {
+      const distance =
+        ((pixel[0] as number) - colour[0]) ** 2 +
+        ((pixel[1] as number) - colour[1]) ** 2 +
+        ((pixel[2] as number) - colour[2]) ** 2;
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = index;
+      }
+    });
+    return bestDistance <= 70 ** 2 ? best : -1;
+  };
+
+  const seen = sampled.centres.map(nearest).filter((index) => index >= 0);
+
+  // The first and last blocks of the source both have to appear: the sticker
+  // covers all eight seconds rather than the first three of them.
+  expect(seen).toContain(0);
+  expect(seen).toContain(palette.length - 1);
+  expect(new Set(seen).size).toBeGreaterThanOrEqual(palette.length - 1);
+
+  // And in order, since the clip is played faster rather than reordered.
+  expect([...seen]).toEqual([...seen].sort((a, b) => a - b));
 });
 
 test('a trim window is honoured', async ({ page }) => {

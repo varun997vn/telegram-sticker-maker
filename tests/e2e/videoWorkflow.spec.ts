@@ -225,14 +225,87 @@ test('choosing a lower frame rate is honoured', async ({ page }) => {
   await expect(page.getByTestId(`frames-${telegramVideo.id}`)).toContainText('10fps');
 });
 
-test('a long source is clipped to the three second limit, and says so', async ({ page }) => {
+test('a long source selects all of it and says it will be sped up', async ({ page }) => {
   // Five seconds at 8 fps.
   const video = await makeVideoFile(page, 40, 8);
   await openWith(page, video);
 
-  await page.getByTestId('trim-end').fill('5000');
+  // The whole clip is selected on load; it is kept and compressed, not cut.
+  await expect(page.getByTestId('trim-end-value')).toHaveText('5.00s');
+  await expect(page.getByTestId('clip-summary')).toContainText('All 5.00s');
   await expect(page.getByTestId('clip-summary')).toContainText('3.00s');
-  await expect(page.getByTestId('clip-summary')).toContainText('the limit is');
+  await expect(page.getByTestId('clip-summary')).toContainText('1.7× speed');
+  await expect(page.getByTestId('speed-note')).toContainText('sampled across its whole length');
+});
+
+test('a selection that already fits is not described as sped up', async ({ page }) => {
+  const video = await makeVideoFile(page, 40, 8);
+  await openWith(page, video);
+
+  await page.getByTestId('trim-end').fill('2000');
+  await expect(page.getByTestId('clip-summary')).toContainText('2.00s');
+  await expect(page.getByTestId('clip-summary')).not.toContainText('speed');
+  await expect(page.getByTestId('speed-note')).toHaveCount(0);
+});
+
+test('the editor shows a live preview that keeps moving', async ({ page }) => {
+  const video = await makeVideoFile(page, 24, 8);
+  await openWith(page, video);
+
+  await expect(page.getByTestId('editor-hint')).toContainText('Live preview');
+
+  // The preview is the video playing, so the canvas contents have to change
+  // on their own. A still poster frame would look identical every time.
+  const canvas = page.getByTestId('design-canvas');
+  const snapshot = async () =>
+    await canvas.evaluate((element) => (element as HTMLCanvasElement).toDataURL());
+
+  const first = await snapshot();
+  await expect
+    .poll(async () => (await snapshot()) !== first, { timeout: 15_000 })
+    .toBe(true);
+});
+
+test('the preview reports the speed-up for a long clip', async ({ page }) => {
+  const video = await makeVideoFile(page, 40, 8);
+  await openWith(page, video);
+
+  await expect(page.getByTestId('editor-hint')).toContainText('1.7× speed');
+
+  await page.getByTestId('trim-end').fill('2000');
+  await expect(page.getByTestId('editor-hint')).not.toContainText('speed');
+});
+
+test('a caption stays on top of the moving preview', async ({ page }) => {
+  const video = await makeVideoFile(page, 24, 8);
+  await openWith(page, video);
+
+  await page.getByTestId('add-text').click();
+  await page.getByTestId('text-content').fill('HELLO');
+  await page.getByTestId('text-color').fill('#ff0000');
+  await page.getByTestId('text-size').fill('0.25');
+
+  // Sampled twice: the caption must be present in both, so it is being drawn
+  // on every animation frame rather than once before playback started.
+  const canvas = page.getByTestId('design-canvas');
+  const redCount = async () =>
+    await canvas.evaluate((element) => {
+      const source = element as HTMLCanvasElement;
+      const context = source.getContext('2d');
+      if (!context) return 0;
+
+      const { data } = context.getImageData(0, 0, source.width, source.height);
+      let count = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        if ((data[i] as number) > 170 && (data[i + 1] as number) < 100 && (data[i + 2] as number) < 100) {
+          count += 1;
+        }
+      }
+      return count;
+    });
+
+  await expect.poll(redCount, { timeout: 15_000 }).toBeGreaterThan(200);
+  await expect.poll(redCount, { timeout: 15_000 }).toBeGreaterThan(200);
 });
 
 test('a still image still offers the still targets', async ({ page }) => {

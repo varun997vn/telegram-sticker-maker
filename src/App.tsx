@@ -11,6 +11,7 @@ import { TextLayerList } from './components/TextLayerList.tsx';
 import { PackPanel } from './components/PackPanel.tsx';
 import type { PackBuildState } from './components/PackPanel.tsx';
 import { TrimControls } from './components/TrimControls.tsx';
+import { usePreviewPlayback, useVideoPreview } from './components/useVideoPreview.ts';
 import { APP_NAME, APP_TAGLINE } from './core/appInfo.ts';
 import { ASSUME_CAPABLE, detectCapabilities, unsupportedReason } from './core/capabilities.ts';
 import type { Capabilities } from './core/capabilities.ts';
@@ -20,6 +21,7 @@ import { stickerFileName } from './core/fileNames.ts';
 import type { FitMode } from './core/geometry.ts';
 import { describeSource, isVideo, loadSource, releaseSource } from './core/source.ts';
 import type { StickerSource } from './core/source.ts';
+import { speedForSelection } from './core/framePlan.ts';
 import { MAX_ANIMATION_MS, STICKER_SPECS } from './core/specs.ts';
 import type { StickerTargetId } from './core/specs.ts';
 import type { TextLayer } from './core/text/model.ts';
@@ -89,15 +91,28 @@ export function App() {
   const [capabilities, setCapabilities] = useState<Capabilities>(ASSUME_CAPABLE);
 
   const video = source && isVideo(source) ? source : null;
-  // Video layouts are drawn against a still frame; images are drawn directly.
+  const speed = video ? speedForSelection(clip.endMs - clip.startMs, MAX_ANIMATION_MS) : 1;
+
+  // The editor plays the clip rather than showing a frozen frame, so the
+  // framing, the captions and the speed-up are all visible before exporting.
+  const preview = useVideoPreview(video);
+  usePreviewPlayback(preview.element, preview.ready, {
+    startMs: clip.startMs,
+    endMs: clip.endMs,
+    speed,
+  });
+
+  // A still frame stands in until the video is ready, or if it refuses to play.
   const drawable: DrawableSource | null =
     source === null
       ? null
       : source.kind === 'image'
         ? source
-        : poster
-          ? { width: poster.width, height: poster.height, bitmap: poster }
-          : null;
+        : preview.ready && preview.element
+          ? { width: source.width, height: source.height, bitmap: preview.element }
+          : poster
+            ? { width: poster.width, height: poster.height, bitmap: poster }
+            : null;
 
   const exportKey = drawable ? `${sourceGeneration}|${fit}|${describeLayers(layers)}` : '';
   const exports = session.key === exportKey ? session.states : {};
@@ -131,11 +146,9 @@ export function App() {
       setPoster(null);
 
       if (isVideo(loaded)) {
-        setClip({
-          startMs: 0,
-          endMs: Math.min(loaded.durationMs, MAX_ANIMATION_MS),
-          frameRate: 30,
-        });
+        // The whole clip, not just the first three seconds: a longer
+        // selection is kept and played faster rather than being cut short.
+        setClip({ startMs: 0, endMs: loaded.durationMs, frameRate: 30 });
         try {
           setPoster(await captureVideoPoster(loaded, 0));
         } catch (cause) {
@@ -310,6 +323,13 @@ export function App() {
     });
   }, []);
 
+  // A newly loaded video should start with the whole of it selected: the
+  // sticker keeps all of it either way, sped up if it is long.
+  useEffect(() => {
+    if (!video) return;
+    setClip((previous) => ({ ...previous, endMs: Math.min(previous.endMs, video.durationMs) }));
+  }, [video]);
+
   return (
     <main className="app">
       <header className="app__header">
@@ -346,12 +366,14 @@ export function App() {
                 fit={fit}
                 layers={layers}
                 selectedId={selectedId}
+                animate={video !== null && preview.ready}
                 onSelect={setSelectedId}
                 onMove={(id, x, y) => patchLayer(id, { x, y })}
               />
-              <p className="editor__hint">
-                Layout surface, 512×512. Drag text to reposition it; each target below shows how it
-                lands.
+              <p className="editor__hint" data-testid="editor-hint">
+                {video
+                  ? `Live preview, 512×512${speed > 1.01 ? ` at ${speed.toFixed(1)}× speed` : ''}. Drag text to reposition it.`
+                  : 'Layout surface, 512×512. Drag text to reposition it; each target below shows how it lands.'}
               </p>
             </div>
 

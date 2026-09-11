@@ -58,7 +58,10 @@ export function buildExtractFramesArgs(options: ExtractFramesOptions): string[] 
     );
   }
 
-  filters.push(`fps=${formatRate(plan.frameRate)}`);
+  // Sampling runs over source time, so a sped-up clip is sampled more sparsely
+  // than it will be played back. For a selection that already fits, the two
+  // rates are the same.
+  filters.push(`fps=${formatRate(plan.samplingRate)}`);
 
   if (pad) {
     // `force_original_aspect_ratio=decrease` then centre in a transparent box.
@@ -73,8 +76,10 @@ export function buildExtractFramesArgs(options: ExtractFramesOptions): string[] 
     // keyframe rather than decoding everything that precedes the trim point.
     '-ss',
     seconds(plan.startMs),
+    // The span of source to read, which is longer than the playback duration
+    // whenever the selection had to be sped up to fit.
     '-t',
-    seconds(plan.durationMs),
+    seconds(plan.sourceSpanMs),
     '-i',
     inputFile,
     '-an',

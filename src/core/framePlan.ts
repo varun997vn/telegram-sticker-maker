@@ -39,14 +39,23 @@ export interface FramePlanInput {
 export interface FramePlan {
   /** Offset into the source at which extraction starts. */
   readonly startMs: number;
-  /** Length of the extracted animation. */
+  /** How much of the source the selection covers, before any speed-up. */
+  readonly sourceSpanMs: number;
+  /** How long the finished animation plays for; never over the target's cap. */
   readonly durationMs: number;
-  /** Effective frame rate after every clamp has been applied. */
+  /**
+   * How much faster the sticker plays than the source did. 1 when the
+   * selection already fits the cap, above 1 when it had to be compressed.
+   */
+  readonly speed: number;
+  /** Playback frame rate, after every clamp has been applied. */
   readonly frameRate: number;
+  /** Frames of *source* time sampled per second; `frameRate / speed`. */
+  readonly samplingRate: number;
   readonly frameCount: number;
   /** Per-frame delay for container formats that store one, such as WebP. */
   readonly frameDelayMs: number;
-  /** Source timestamps to sample, all strictly inside the trim window. */
+  /** Source timestamps to sample, spread across the whole selection. */
   readonly timestampsMs: readonly number[];
 }
 
@@ -82,7 +91,13 @@ export function planFrames(input: FramePlanInput): FramePlan {
   const startMs = rawEnd > rawStart ? rawStart : 0;
   const endMs = rawEnd > rawStart ? rawEnd : sourceDurationMs;
 
-  const durationMs = Math.min(endMs - startMs, input.maxDurationMs);
+  const sourceSpanMs = endMs - startMs;
+
+  // A selection longer than the cap is not cut short: the whole of it is kept
+  // and played faster. Truncating would silently throw away the part of the
+  // clip the user chose, which is rarely what they meant by selecting it.
+  const durationMs = Math.min(sourceSpanMs, input.maxDurationMs);
+  const speed = sourceSpanMs / durationMs;
   const requestedRate = Math.min(input.frameRate, input.maxFrameRate);
 
   // Frames cover [start, start + duration), so a 1 s window at 30 fps is 30
@@ -96,7 +111,9 @@ export function planFrames(input: FramePlanInput): FramePlan {
     frameRate = frameCount / (durationMs / 1000);
   }
 
-  const step = durationMs / frameCount;
+  // Samples are spread over the whole selection, so a ten second clip becomes
+  // three seconds covering all ten rather than the first three.
+  const step = sourceSpanMs / frameCount;
   const timestampsMs: number[] = [];
   for (let i = 0; i < frameCount; i += 1) {
     timestampsMs.push(startMs + i * step);
@@ -104,12 +121,27 @@ export function planFrames(input: FramePlanInput): FramePlan {
 
   return {
     startMs,
+    sourceSpanMs,
     durationMs,
+    speed,
     frameRate,
+    samplingRate: frameRate / speed,
     frameCount,
     frameDelayMs: Math.max(MIN_FRAME_DELAY_MS, Math.round(1000 / frameRate)),
     timestampsMs,
   };
+}
+
+/**
+ * How much faster a selection has to play to fit the cap.
+ *
+ * The UI needs this before any encoding happens, so it can say what the
+ * selection will actually produce.
+ */
+export function speedForSelection(sourceSpanMs: number, maxDurationMs: number): number {
+  if (!Number.isFinite(sourceSpanMs) || sourceSpanMs <= 0) return 1;
+  if (!Number.isFinite(maxDurationMs) || maxDurationMs <= 0) return 1;
+  return Math.max(1, sourceSpanMs / Math.min(sourceSpanMs, maxDurationMs));
 }
 
 export interface SpecFramePlanInput {

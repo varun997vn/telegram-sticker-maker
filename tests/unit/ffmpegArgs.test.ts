@@ -105,6 +105,31 @@ describe('buildExtractFramesArgs', () => {
     expect(filters).toContain('fps=30');
   });
 
+  it('reads the whole selection and samples it sparsely when it is sped up', () => {
+    // Twelve seconds compressed into three plays four times as fast, so a
+    // thirty frame-per-second sticker samples the source at seven and a half.
+    const long = planFrames({
+      sourceDurationMs: 60_000,
+      trimStartMs: 2000,
+      trimEndMs: 14_000,
+      frameRate: 30,
+      maxDurationMs: 3000,
+      maxFrameRate: 30,
+    });
+    const args = buildExtractFramesArgs({ plan: long, size });
+
+    expect(valueAfter(args, '-ss')).toBe('2.000');
+    expect(valueAfter(args, '-t')).toBe('12.000');
+    expect(valueAfter(args, '-vf')).toContain('fps=7.500');
+    expect(valueAfter(args, '-frames:v')).toBe('90');
+  });
+
+  it('reads only the selection when no speed-up is needed', () => {
+    const args = buildExtractFramesArgs({ plan, size });
+    expect(valueAfter(args, '-t')).toBe(seconds(plan.sourceSpanMs));
+    expect(valueAfter(args, '-t')).toBe(seconds(plan.durationMs));
+  });
+
   it('crops before scaling, so the crop is in source pixels', () => {
     const filters = valueAfter(
       buildExtractFramesArgs({ plan, size, crop: { x: 420, y: 0, width: 1080, height: 1080 } }),
