@@ -14,7 +14,7 @@ a time, with sign-off before the next one starts.
 | 0 | Foundation, test harness, CI, Pages deploy | ✅ Done |
 | 1 | Sticker specs, geometry, frame planning, byte-budget search | ✅ Done |
 | 2 | Image → static sticker export | ✅ Done |
-| 3 | Text overlay editor | ⬜ Not started |
+| 3 | Text overlay editor | ✅ Done |
 | 4 | ffmpeg.wasm integration and video frame extraction | ⬜ Not started |
 | 5 | Animated sticker export | ⬜ Not started |
 | 6 | Sticker pack export | ⬜ Not started |
@@ -124,12 +124,32 @@ Notes on the design:
   and lets a test ask for input with specific properties — a smooth gradient
   that compresses easily, or noise that does not.
 
-### Stage 3 — Text overlay editor
+### Stage 3 — Text overlay editor ✅
 
-- [ ] Multiple text layers with drag positioning
-- [ ] Font family, size, colour, outline, shadow, rotation, opacity
-- [ ] Layer list: reorder, duplicate, delete
-- [ ] Unit tests for the layout model; end-to-end test for the rendered result
+- [x] Multiple text layers, positioned by dragging them on a 512×512 layout
+      surface
+- [x] Font family, size, fill, outline colour and width, shadow, rotation,
+      opacity, alignment, line spacing, wrap width and uppercase
+- [x] Word wrapping and explicit line breaks
+- [x] Layer list with select, reorder, duplicate and delete
+- [x] 68 unit tests for the layout engine and the layer operations, and 13
+      browser tests that decode the exported sticker and count pixels
+
+Notes on the design:
+
+- **Layers are stored in normalised coordinates.** Positions are fractions of
+  the canvas and sizes are fractions of its longest side — which is 512 for
+  every sticker target — so one caption renders at the same apparent size on a
+  512×512 WhatsApp sticker and a 512×341 Telegram one.
+- **Measurement is injected into the layout engine.** Wrapping, alignment,
+  block size and anchoring are tested with exactly known glyph widths rather
+  than whatever font the test machine happens to have installed.
+- **The preview and the encoder share one renderer.** `drawStickerFrame` is the
+  single definition of what a frame looks like, so what is on screen cannot
+  drift from what is exported.
+- **Browser tests assert pixels, not settings.** Each test decodes the sticker
+  the browser actually saved and counts pixels in a region, which is the only
+  way to know a layer rendered where it was asked to.
 
 ### Stage 4 — ffmpeg.wasm integration
 

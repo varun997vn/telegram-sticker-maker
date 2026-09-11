@@ -132,6 +132,15 @@ export function noise(width: number, height: number, seed = 1): Uint8Array {
   ]);
 }
 
+/** A single flat colour, so anything else in the output came from a layer. */
+export function solid(
+  width: number,
+  height: number,
+  colour: readonly [number, number, number, number] = [20, 40, 90, 255],
+): Uint8Array {
+  return encodePNG(width, height, () => colour as [number, number, number, number]);
+}
+
 /** Four flat quadrants: trivially checkable pixel colours. */
 export function quadrants(width: number, height: number): Uint8Array {
   return encodePNG(width, height, (x, y) => {
