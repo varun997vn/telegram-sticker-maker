@@ -38,6 +38,12 @@ Two deliberate product decisions:
 - **Animation length is capped at 3.0 s for every target.** WhatsApp tolerates
   longer, but Telegram does not, and a single edit should be exportable to both
   without a second pass.
+- **A longer selection is compressed, not truncated.** Frames are sampled
+  across the whole of whatever the user selected, so a ten-second clip becomes
+  a three-second sticker covering all ten rather than only its first three.
+  Cutting the clip short would silently discard the part they chose by
+  selecting it; playing it faster keeps all of it. The editor previews the
+  result at that speed and names the factor.
 - **Frame rate is adaptive, not fixed.** 256 KB of 512×512 VP9 is a tight
   budget, so the encoder starts at 30 fps / high quality and steps down
   (30 → 24 → 15 fps, then quality) until the output fits. Guessing a bitrate up
@@ -192,8 +198,8 @@ Notes on the design:
 - [x] WhatsApp animated WebP export, encoded by ffmpeg
 - [x] Budget search wired to both real encoders, dropping quality first and
       frame rate second
-- [x] Video input, trim window, frame-rate choice and a live preview of the
-      finished sticker
+- [x] Video input, trim window, frame-rate choice, a live preview of the clip
+      with its captions, and a preview of the finished sticker
 - [x] 24 browser tests covering the encoder and the interface it sits behind
 
 **ffmpeg cannot encode VP9 here.** The libvpx inside @ffmpeg/core 0.12.10 traps
@@ -226,6 +232,16 @@ Other notes:
 - **Animated exports run on request, not on every edit.** They take seconds and
   fetch a 32 MB engine, so each card generates only when asked, reports its
   phase while working, and can be cancelled.
+- **The search spends the whole frame-rate ladder before giving up.** An
+  earlier cap of three rounds meant it could stop with rungs untried and hand
+  back an oversized file — CI caught it returning 264 KB against a 256 KB
+  limit. Frame count is the dial that reliably shrinks VP9 output: the
+  browser's encoder treats a target bitrate as a suggestion, and asked for
+  154 kbit/s on dense noise it produced roughly six times that.
+- **Some content genuinely cannot fit.** Three seconds of pure noise at
+  512×384 is beyond VP9 at 256 KB on any encoder measured. The app degrades as
+  far as the ladder goes, then says so and suggests a shorter or calmer clip,
+  rather than silently handing over a sticker the platform will reject.
 
 ### Stage 6 — Sticker pack export ✅
 

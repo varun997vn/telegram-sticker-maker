@@ -8,7 +8,8 @@ on GitHub Pages.
 ## What it does
 
 - **Images in** — drop, pick or paste a PNG, JPEG, WebP, GIF, AVIF or BMP.
-- **Videos in** — MP4, WebM, MOV, MKV or OGV, trimmed to a clip you choose.
+- **Videos in** — MP4, WebM, MOV, MKV or OGV, with a live preview of the
+  sticker as you edit it.
 - **Captions** — as many text layers as you like, dragged into place, with
   control over font, colour, outline, shadow, rotation, opacity, alignment,
   line spacing, wrapping and case.
@@ -34,6 +35,12 @@ that passes here cannot be rejected for size.
 Animations are capped at **3 seconds** for every target. WhatsApp tolerates
 longer, but Telegram does not, and one edit should export to both without a
 second pass.
+
+A longer clip is **not cut short**. The whole of whatever you select is kept
+and sampled across its full length, so a ten-second clip becomes a three-second
+sticker covering all ten — played faster. The editor previews it at that speed
+and the controls say what the factor is. Select a shorter range if you want
+normal speed.
 
 When a sticker will not fit its budget, the encoder lowers quality first and
 frame rate second — a caption that has gone illegible hurts a sticker more than

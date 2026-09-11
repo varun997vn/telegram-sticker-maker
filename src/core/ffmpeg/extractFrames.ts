@@ -85,12 +85,16 @@ export async function extractFrames(options: ExtractFramesOptions): Promise<Extr
     throw error;
   }
 
+  // A source that ran out early yields fewer frames, so the playback duration
+  // has to shrink with them or the container would claim a length it does not
+  // have.
   return {
     frames,
     size,
     plan: {
       ...plan,
       frameCount: frames.length,
+      durationMs: (frames.length / plan.frameRate) * 1000,
       timestampsMs: plan.timestampsMs.slice(0, frames.length),
     },
   };

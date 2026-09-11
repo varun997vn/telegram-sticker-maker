@@ -6,6 +6,7 @@ import {
   frameRateLadderFor,
   planFrames,
   planFramesForSpec,
+  speedForSelection,
 } from '@/core/framePlan.ts';
 import { STICKER_SPECS } from '@/core/specs.ts';
 
@@ -38,10 +39,56 @@ describe('planFrames', () => {
     }
   });
 
-  it('clamps a trim window longer than the target allows', () => {
+  it('caps playback at the target limit however long the selection is', () => {
     const plan = planFrames({ sourceDurationMs: 60_000, trimStartMs: 1000, trimEndMs: 55_000, frameRate: 30, ...base });
     expect(plan.startMs).toBe(1000);
     expect(plan.durationMs).toBe(3000);
+  });
+
+  it('keeps the whole selection by speeding it up rather than cutting it short', () => {
+    const plan = planFrames({
+      sourceDurationMs: 60_000,
+      trimStartMs: 0,
+      trimEndMs: 30_000,
+      frameRate: 30,
+      ...base,
+    });
+
+    expect(plan.sourceSpanMs).toBe(30_000);
+    expect(plan.durationMs).toBe(3000);
+    expect(plan.speed).toBe(10);
+
+    // The last sample has to come from the end of the selection, not from
+    // three seconds in, or the rest of the clip is silently discarded.
+    expect(plan.timestampsMs.at(-1)).toBeGreaterThan(29_000);
+  });
+
+  it('spreads samples evenly across a long selection', () => {
+    const plan = planFrames({ sourceDurationMs: 60_000, trimEndMs: 30_000, frameRate: 30, ...base });
+    const gaps = plan.timestampsMs.slice(1).map((time, i) => time - (plan.timestampsMs[i] as number));
+
+    for (const gap of gaps) {
+      expect(gap).toBeCloseTo(gaps[0] as number, 6);
+    }
+  });
+
+  it('samples source time more sparsely than it plays back, by exactly the speed-up', () => {
+    const plan = planFrames({ sourceDurationMs: 60_000, trimEndMs: 12_000, frameRate: 30, ...base });
+    expect(plan.speed).toBe(4);
+    expect(plan.samplingRate).toBeCloseTo(30 / 4, 6);
+  });
+
+  it('leaves a selection that already fits at normal speed', () => {
+    const plan = planFrames({ sourceDurationMs: 10_000, trimStartMs: 1000, trimEndMs: 3500, frameRate: 30, ...base });
+    expect(plan.speed).toBe(1);
+    expect(plan.samplingRate).toBe(plan.frameRate);
+    expect(plan.sourceSpanMs).toBe(plan.durationMs);
+  });
+
+  it('still fills the limit when the whole source is shorter than it', () => {
+    const plan = planFrames({ sourceDurationMs: 1200, frameRate: 30, ...base });
+    expect(plan.speed).toBe(1);
+    expect(plan.durationMs).toBe(1200);
   });
 
   it('clamps a requested frame rate above the target ceiling', () => {
@@ -118,6 +165,38 @@ describe('planFramesForSpec', () => {
 
   it('refuses to frame-plan a still target', () => {
     expect(() => planFramesForSpec(telegramStatic, { sourceDurationMs: 3000 })).toThrow(TypeError);
+  });
+});
+
+describe('speedForSelection', () => {
+  it('is 1 for a selection that already fits', () => {
+    expect(speedForSelection(2000, 3000)).toBe(1);
+    expect(speedForSelection(3000, 3000)).toBe(1);
+  });
+
+  it('is the ratio for a selection that does not', () => {
+    expect(speedForSelection(30_000, 3000)).toBe(10);
+    expect(speedForSelection(4500, 3000)).toBe(1.5);
+  });
+
+  it('never reports a slowdown', () => {
+    for (const span of [1, 100, 2999, 3000, 3001, 100_000]) {
+      expect(speedForSelection(span, 3000)).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it.each([
+    ['a zero span', 0, 3000],
+    ['a negative span', -5, 3000],
+    ['a non-finite span', Number.NaN, 3000],
+    ['a zero cap', 3000, 0],
+  ])('falls back to normal speed for %s', (_label, span, cap) => {
+    expect(speedForSelection(span, cap)).toBe(1);
+  });
+
+  it('agrees with the planner', () => {
+    const plan = planFrames({ sourceDurationMs: 60_000, trimEndMs: 18_000, frameRate: 30, ...base });
+    expect(speedForSelection(18_000, 3000)).toBeCloseTo(plan.speed, 6);
   });
 });
 

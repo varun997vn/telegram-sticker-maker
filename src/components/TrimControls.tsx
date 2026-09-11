@@ -1,7 +1,7 @@
 import { formatBytes } from '../core/budget.ts';
+import { FRAME_RATE_LADDER, speedForSelection } from '../core/framePlan.ts';
 import { MAX_ANIMATION_MS } from '../core/specs.ts';
 import type { VideoSource } from '../core/videoSource.ts';
-import { FRAME_RATE_LADDER } from '../core/framePlan.ts';
 
 interface TrimControlsProps {
   readonly source: VideoSource;
@@ -15,8 +15,9 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(2)}s`;
 
 export function TrimControls({ source, startMs, endMs, frameRate, onChange }: TrimControlsProps) {
   const selected = Math.max(0, endMs - startMs);
-  const clipped = Math.min(selected, MAX_ANIMATION_MS);
-  const isClipped = selected > MAX_ANIMATION_MS;
+  const playback = Math.min(selected, MAX_ANIMATION_MS);
+  const speed = speedForSelection(selected, MAX_ANIMATION_MS);
+  const isSpedUp = speed > 1.01;
 
   return (
     <fieldset className="controls__group controls__group--stack" data-testid="trim-controls">
@@ -78,9 +79,16 @@ export function TrimControls({ source, startMs, endMs, frameRate, onChange }: Tr
       </label>
 
       <p className="controls__note" data-testid="clip-summary">
-        {seconds(clipped)} at up to {frameRate} fps
-        {isClipped && ` — trimmed from ${seconds(selected)}, the limit is ${seconds(MAX_ANIMATION_MS)}`}
+        {isSpedUp
+          ? `All ${seconds(selected)} of the selection, played in ${seconds(playback)} at ${speed.toFixed(1)}× speed, up to ${frameRate} fps`
+          : `${seconds(playback)} at up to ${frameRate} fps`}
       </p>
+      {isSpedUp && (
+        <p className="controls__note" data-testid="speed-note">
+          Stickers are capped at {seconds(MAX_ANIMATION_MS)}, so a longer clip is sampled across its
+          whole length rather than cut short. Select a shorter range for normal speed.
+        </p>
+      )}
       <p className="controls__note">
         Budgets: Telegram {formatBytes(256_000)}, WhatsApp {formatBytes(500_000)}. The encoder drops
         quality, then frame rate, until it fits.

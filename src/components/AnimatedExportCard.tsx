@@ -152,6 +152,14 @@ export function AnimatedExportCard({
         </ul>
       )}
 
+      {result && !result.withinBudget && (
+        <p className="card__hint" data-testid={`hint-${spec.id}`}>
+          The encoder went down to {Math.round(result.frameRate)} fps and still could not fit this
+          clip. Detailed, fast-moving footage is the hard case — a shorter clip, or one with less
+          going on, will compress much further.
+        </p>
+      )}
+
       <div className="card__actions">
         {state.status === 'running' ? (
           <button type="button" data-testid={`cancel-${spec.id}`} onClick={onCancel}>
