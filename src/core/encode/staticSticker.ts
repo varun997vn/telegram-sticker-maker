@@ -4,9 +4,10 @@ import type { ComplianceReport } from '../compliance.ts';
 import { outputSize } from '../geometry.ts';
 import type { FitMode, Size } from '../geometry.ts';
 import { canvasToBytes, createRenderCanvas, get2dContext } from '../render/canvas.ts';
-import { drawComposite } from '../render/composite.ts';
 import type { DrawableSource } from '../render/composite.ts';
+import { drawStickerFrame } from '../render/sticker.ts';
 import type { StickerSpec } from '../specs.ts';
+import type { TextLayer } from '../text/model.ts';
 
 /**
  * Encoding a still sticker straight through the canvas.
@@ -30,6 +31,7 @@ export interface StaticEncodeOptions {
   readonly spec: StickerSpec;
   readonly fit: FitMode;
   readonly background?: string | null;
+  readonly layers?: readonly TextLayer[];
   readonly signal?: AbortSignal;
   /** Overrides the default ladder; mainly a test seam. */
   readonly qualitySteps?: readonly number[];
@@ -52,7 +54,7 @@ export interface StaticEncodeResult {
 export async function encodeStaticSticker(
   options: StaticEncodeOptions,
 ): Promise<StaticEncodeResult> {
-  const { source, spec, fit, background = null, signal } = options;
+  const { source, spec, fit, background = null, layers = [], signal } = options;
 
   if (spec.kind !== 'static') {
     throw new TypeError(`"${spec.id}" is an animated target and cannot be encoded as a still image`);
@@ -60,10 +62,10 @@ export async function encodeStaticSticker(
 
   const size = outputSize({ width: source.width, height: source.height }, spec);
 
-  // Composite once and re-encode the same pixels at each quality step.
+  // Compose once and re-encode the same pixels at each quality step.
   const canvas = createRenderCanvas(size);
   const context = get2dContext(canvas);
-  drawComposite(context, source, { size, fit, background });
+  drawStickerFrame(context, { source, size, fit, background, layers });
 
   const candidates = options.qualitySteps ?? WEBP_QUALITY_LADDER;
   const search = await searchWithinBudget<number>({

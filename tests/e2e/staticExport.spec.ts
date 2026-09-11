@@ -1,61 +1,17 @@
-import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
 import { checkCompliance } from '../../src/core/compliance.ts';
 import { parseWebP } from '../../src/core/formats/webp.ts';
 import { STICKER_SPECS } from '../../src/core/specs.ts';
 import { gradientWithAlpha, noise, quadrants } from '../helpers/pngEncoder.ts';
+import { download, edit, settle, upload } from './helpers/sticker.ts';
 
 const telegramStatic = STICKER_SPECS['telegram-static'];
 const whatsappStatic = STICKER_SPECS['whatsapp-static'];
 
-/**
- * The exports section is tagged with the settings that produced it. Waiting for
- * that tag to change before waiting for the encodes to settle is what stops a
- * test from reading the previous image's results and believing them.
- */
-async function exportKey(page: Page): Promise<string> {
-  const section = page.getByTestId('exports');
-  return (await section.count()) === 0
-    ? ''
-    : ((await section.getAttribute('data-export-key')) ?? '');
-}
-
-async function settle(page: Page, previousKey: string): Promise<void> {
-  await expect(page.getByTestId('exports')).not.toHaveAttribute('data-export-key', previousKey);
-  for (const id of [telegramStatic.id, whatsappStatic.id]) {
-    await expect(page.getByTestId(`status-${id}`)).not.toHaveText('Encoding…');
-  }
-}
-
-async function upload(page: Page, name: string, bytes: Uint8Array): Promise<void> {
-  const previousKey = await exportKey(page);
-  await page.getByTestId('file-input').setInputFiles({
-    name,
-    mimeType: 'image/png',
-    buffer: Buffer.from(bytes),
+async function chooseFit(page: import('@playwright/test').Page, mode: 'contain' | 'cover'): Promise<void> {
+  await edit(page, async () => {
+    await page.getByTestId(`fit-${mode}`).check();
   });
-  await expect(page.getByTestId('source-info')).toContainText(name);
-  await settle(page, previousKey);
-}
-
-async function chooseFit(page: Page, mode: 'contain' | 'cover'): Promise<void> {
-  const previousKey = await exportKey(page);
-  await page.getByTestId(`fit-${mode}`).check();
-  await settle(page, previousKey);
-}
-
-/** Click a download link and return the bytes the browser actually saved. */
-async function download(page: Page, targetId: string): Promise<{ bytes: Uint8Array; fileName: string }> {
-  const [event] = await Promise.all([
-    page.waitForEvent('download'),
-    page.getByTestId(`download-${targetId}`).click(),
-  ]);
-
-  const path = await event.path();
-  if (!path) throw new Error(`Download for ${targetId} produced no file`);
-
-  return { bytes: new Uint8Array(await readFile(path)), fileName: event.suggestedFilename() };
 }
 
 test.beforeEach(async ({ page }) => {
