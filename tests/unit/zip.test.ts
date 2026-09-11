@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -101,9 +101,33 @@ describe('createZip', () => {
     expect(entries).toEqual(['a.txt', 'b/c.txt']);
   });
 
-  it('handles a name with non-ASCII characters', () => {
-    const extracted = unzipTo(createZip([{ name: 'héllo-🐱.txt', data: text('ok') }]), 'unicode');
-    expect(readFileSync(join(extracted, 'héllo-🐱.txt'), 'utf8')).toBe('ok');
+  it('stores a non-ASCII name as UTF-8 and flags it as such', () => {
+    // What the extractor then calls the file on disk depends on its locale —
+    // Info-ZIP escapes names it cannot map under a C locale — so this checks
+    // the bytes in the archive rather than the name the filesystem ends up
+    // with. Bit 11 of the general purpose flags is what tells a reader the
+    // name is UTF-8 rather than the legacy code page.
+    const name = 'héllo-🐱.txt';
+    const bytes = createZip([{ name, data: text('ok') }]);
+
+    const flags = new DataView(bytes.buffer, bytes.byteOffset).getUint16(6, true);
+    expect(flags & 0x0800).toBe(0x0800);
+
+    const encoded = new TextEncoder().encode(name);
+    const nameLength = new DataView(bytes.buffer, bytes.byteOffset).getUint16(26, true);
+    expect(nameLength).toBe(encoded.byteLength);
+    expect([...bytes.slice(30, 30 + encoded.byteLength)]).toEqual([...encoded]);
+  });
+
+  it('extracts a non-ASCII entry whatever the extractor names it', () => {
+    const archive = join(workDir, 'unicode.zip');
+    const target = join(workDir, 'unicode');
+    writeFileSync(archive, createZip([{ name: 'héllo-🐱.txt', data: text('ok') }]));
+    execFileSync('unzip', ['-qq', '-o', archive, '-d', target]);
+
+    const written = readdirSync(target);
+    expect(written).toHaveLength(1);
+    expect(readFileSync(join(target, written[0] as string), 'utf8')).toBe('ok');
   });
 
   it('handles an empty file', () => {

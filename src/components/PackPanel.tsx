@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { formatBytes } from '../core/budget.ts';
 import type { BuiltPack } from '../core/pack/buildPack.ts';
 import { PACK_LIMITS } from '../core/pack/model.ts';
@@ -23,24 +23,34 @@ interface PackPanelProps {
 }
 
 function useObjectUrl(blob: Blob | null): string | null {
-  const [url, setUrl] = useState<string | null>(null);
+  const [entry, setEntry] = useState<{ blob: Blob; url: string } | null>(null);
 
   useEffect(() => {
     if (!blob) {
-      setUrl(null);
+      setEntry(null);
       return;
     }
-    const next = URL.createObjectURL(blob);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
+
+    const url = URL.createObjectURL(blob);
+    setEntry({ blob, url });
+    return () => URL.revokeObjectURL(url);
   }, [blob]);
 
-  return url;
+  // Creating the URL is an effect, so for one commit after a new result
+  // arrives the previous URL is still in state. Returning it then would offer
+  // a download link pointing at the sticker before last, so the link is
+  // withheld until the URL belongs to the blob being rendered.
+  return entry && entry.blob === blob ? entry.url : null;
 }
 
 function StickerThumb({ sticker }: { readonly sticker: PackSticker }) {
   const spec = getSpec(sticker.targetId);
-  const url = useObjectUrl(new Blob([sticker.bytes as BlobPart], { type: spec.mimeType }));
+  // A fresh Blob each render would re-run the effect and churn object URLs.
+  const blob = useMemo(
+    () => new Blob([sticker.bytes as BlobPart], { type: spec.mimeType }),
+    [sticker.bytes, spec.mimeType],
+  );
+  const url = useObjectUrl(blob);
 
   if (!url) return <div className="pack__thumb" />;
 

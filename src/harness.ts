@@ -101,6 +101,8 @@ export interface HarnessApi {
     compliant: boolean;
     issues: string[];
     phases: string[];
+    /** Frame rates the budget search actually tried, in order. */
+    ratesTried: number[];
   }>;
   /** Extract frames from a base64 video and report what came back. */
   extract(options: {
@@ -210,6 +212,7 @@ const api: HarnessApi = {
     const spec = getSpec(targetId);
     const source = await loadVideoSource(file);
     const phases: string[] = [];
+    const ratesTried: number[] = [];
 
     const result = await encodeAnimatedSticker({
       source,
@@ -219,8 +222,9 @@ const api: HarnessApi = {
       ...(trimStartMs === undefined ? {} : { trimStartMs }),
       ...(trimEndMs === undefined ? {} : { trimEndMs }),
       ...(frameRate === undefined ? {} : { frameRate }),
-      onProgress: ({ phase }) => {
+      onProgress: ({ phase, frameRate: rate }) => {
         if (phases.at(-1) !== phase) phases.push(phase);
+        if (rate !== undefined && ratesTried.at(-1) !== rate) ratesTried.push(rate);
       },
     });
 
@@ -238,6 +242,7 @@ const api: HarnessApi = {
       compliant: result.compliance.ok,
       issues: result.compliance.issues.map((issue) => issue.message),
       phases,
+      ratesTried,
     };
   },
 

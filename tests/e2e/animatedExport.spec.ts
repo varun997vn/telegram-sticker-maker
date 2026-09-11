@@ -80,9 +80,13 @@ async function simpleVideo(page: Page): Promise<Fixture> {
   return await makeVideo(page, frames, 12);
 }
 
-/** A two-second 12 fps clip of noise, which cannot fit at full quality. */
+/**
+ * Three seconds of dense noise: too much for the budget at full frame rate on
+ * any encoder measured, so the export has to degrade to fit and the test
+ * exercises that path rather than passing on the first attempt.
+ */
 async function noisyVideo(page: Page): Promise<Fixture> {
-  const total = 24;
+  const total = 36;
   const frames = Array.from({ length: total }, (_, i) => noisyFrame(320, 240, i + 1));
   return await makeVideo(page, frames, 12);
 }
@@ -322,7 +326,30 @@ test('a source the budget cannot hold at full rate is degraded, not abandoned', 
   // Whatever it took, the result must fit and remain a valid sticker.
   expect(result.byteLength).toBeLessThanOrEqual(telegramVideo.maxBytes);
   expect(result.issues).toEqual([]);
-  expect(result.attempts).toBeGreaterThan(0);
+  expect(result.withinBudget).toBe(true);
+
+  // And it must have got there by degrading rather than by luck: this much
+  // noise does not fit at the full frame rate.
+  expect(result.ratesTried.length).toBeGreaterThan(1);
+  expect(result.frameRate).toBeLessThan(30);
+});
+
+test('the search keeps lowering the frame rate until it fits', async ({ page }) => {
+  await harness(page);
+  const fixture = await noisyVideo(page);
+
+  const result = await encode(page, {
+    base64: fixture.base64,
+    fileName: 'noise.webm',
+    mimeType: 'video/webm',
+    targetId: 'telegram-video',
+  });
+
+  // Each rung tried must be slower than the last, so the search always makes
+  // progress towards a size that fits.
+  expect([...result.ratesTried]).toEqual([...result.ratesTried].sort((a, b) => b - a));
+  expect(new Set(result.ratesTried).size).toBe(result.ratesTried.length);
+  expect(result.frameRate).toBe(result.ratesTried.at(-1));
 });
 
 test('the search spends as few encodes as it can', async ({ page }) => {
