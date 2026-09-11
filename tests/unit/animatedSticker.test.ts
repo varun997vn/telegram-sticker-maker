@@ -6,6 +6,7 @@ import {
   extractionFit,
 } from '@/core/encode/animatedSticker.ts';
 import { bitrateLadder, hasVideoEncoder } from '@/core/encode/vp9Encoder.ts';
+import { FRAME_RATE_LADDER } from '@/core/framePlan.ts';
 import { STICKER_SPECS } from '@/core/specs.ts';
 import type { VideoSource } from '@/core/videoSource.ts';
 
@@ -24,10 +25,17 @@ describe('quality ladders', () => {
     expect(WEBP_QUALITY_LADDER.every((quality) => quality >= 0 && quality <= 100)).toBe(true);
   });
 
+  it('never gives up while a slower frame rate remains untried', () => {
+    // Stopping early leaves the user with a sticker the platform rejects.
+    // The cap has to be the ladder's length, not a smaller number.
+    expect(MAX_RATE_ATTEMPTS).toBe(FRAME_RATE_LADDER.length);
+  });
+
   it('bounds the total encodes a search can perform', () => {
-    // Three rates, each a binary search over seven candidates.
+    // Each rate is a binary search over the quality ladder, so the worst case
+    // is the ladder length times the search depth.
     const perRate = Math.floor(Math.log2(WEBP_QUALITY_LADDER.length)) + 1;
-    expect(MAX_RATE_ATTEMPTS * perRate).toBeLessThanOrEqual(12);
+    expect(MAX_RATE_ATTEMPTS * perRate).toBeLessThanOrEqual(24);
   });
 });
 
@@ -61,6 +69,13 @@ describe('bitrateLadder', () => {
 
   it('never drops below a floor that would be unwatchable', () => {
     expect(Math.min(...bitrateLadder(1000, 10_000))).toBeGreaterThanOrEqual(24_000);
+  });
+
+  it('reaches well below the rate that would nominally fill the budget', () => {
+    // The encoder overshoots its target on hard content, so a ladder that
+    // stops near the nominal rate cannot bring a difficult clip into budget.
+    const nominal = (budget * 8) / (duration / 1000);
+    expect(Math.min(...bitrateLadder(budget, duration))).toBeLessThan(nominal * 0.1);
   });
 
   it.each([

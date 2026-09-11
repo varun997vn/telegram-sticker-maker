@@ -75,7 +75,10 @@ export function bitrateLadder(budgetBytes: number, durationMs: number, steps = 7
 
   const nominal = (budgetBytes * 8) / (durationMs / 1000);
   const highest = 0.9;
-  const lowest = 0.15;
+  // The encoder treats the target as a suggestion and overshoots badly on
+  // hard content, so the ladder reaches well below the rate that would
+  // nominally fill the budget.
+  const lowest = 0.08;
 
   return Array.from({ length: steps }, (_, index) => {
     const fraction = highest + ((lowest - highest) * index) / (steps - 1);

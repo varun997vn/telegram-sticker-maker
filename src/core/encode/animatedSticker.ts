@@ -4,7 +4,12 @@ import type { ComplianceReport } from '../compliance.ts';
 import { FRAME_PATTERN, buildEncodeAnimatedWebPArgs, frameFileNames } from '../ffmpeg/args.ts';
 import { extractFrames, releaseFrames } from '../ffmpeg/extractFrames.ts';
 import { openFFmpegSession } from '../ffmpeg/run.ts';
-import { estimateFrameRateForBudget, planFramesForSpec, selectFrameIndices } from '../framePlan.ts';
+import {
+  FRAME_RATE_LADDER,
+  estimateFrameRateForBudget,
+  planFramesForSpec,
+  selectFrameIndices,
+} from '../framePlan.ts';
 import type { FramePlan } from '../framePlan.ts';
 import { coverCrop, outputSize } from '../geometry.ts';
 import type { FitMode, Rect, Size } from '../geometry.ts';
@@ -41,10 +46,20 @@ import { bitrateLadder, encodeVp9WebM } from './vp9Encoder.ts';
 export const WEBP_QUALITY_LADDER = qualityLadder(85, 20, 7);
 
 /**
- * How many frame rates to try before giving up. Each rung costs a fresh round
- * of encoding, and below the third the result is too choppy to be worth it.
+ * How many frame rates to try before giving up.
+ *
+ * This is the length of the frame-rate ladder, not an arbitrary cap: stopping
+ * early while rungs remain means handing back a sticker the platform will
+ * reject, and frame count is the one dial that reliably shrinks the output.
+ * The browser's VP9 encoder treats a target bitrate as a suggestion — asked
+ * for 154 kbit/s on dense noise it produced roughly six times that — so
+ * quality alone cannot be relied on to reach the budget.
+ *
+ * The cost is bounded: each rung is a binary search over the quality ladder,
+ * and the estimate below usually jumps straight to a rate that fits rather
+ * than stepping down one at a time.
  */
-export const MAX_RATE_ATTEMPTS = 3;
+export const MAX_RATE_ATTEMPTS = FRAME_RATE_LADDER.length;
 
 export type AnimatedPhase = 'extracting' | 'compositing' | 'encoding';
 

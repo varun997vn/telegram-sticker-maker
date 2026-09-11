@@ -18,8 +18,12 @@ export async function exportKey(page: Page): Promise<string> {
 
 export async function settle(page: Page, previousKey: string): Promise<void> {
   await expect(page.getByTestId('exports')).not.toHaveAttribute('data-export-key', previousKey);
+
   for (const id of STATIC_TARGETS) {
     await expect(page.getByTestId(`status-${id}`)).not.toHaveText('Encoding…');
+    // The download URL is created in an effect, so it lands one commit after
+    // the status does. Reading the sticker before then gets the previous one.
+    await expect(page.getByTestId(`download-${id}`)).not.toHaveAttribute('aria-disabled', 'true');
   }
 }
 

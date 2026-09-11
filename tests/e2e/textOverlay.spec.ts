@@ -145,8 +145,17 @@ test('newlines stack extra lines above the original', async ({ page }) => {
 
   // Three lines centred on the same point reach a line height higher than one
   // does, and cover roughly three times as much of the sticker.
-  expect(await topmostRow(page, target, RED)).toBeLessThan(oneLineTop - 0.08);
-  expect(await countPixels(page, target, RED)).toBeGreaterThan(oneLineCount * 2);
+  const threeLineTop = await topmostRow(page, target, RED);
+  const threeLineCount = await countPixels(page, target, RED);
+
+  expect(
+    threeLineTop,
+    `three lines should start higher than one: one=${oneLineTop} three=${threeLineTop}`,
+  ).toBeLessThan(oneLineTop - 0.08);
+  expect(
+    threeLineCount,
+    `three lines should cover more: one=${oneLineCount} three=${threeLineCount}`,
+  ).toBeGreaterThan(oneLineCount * 2);
 });
 
 test('layers can be reordered, and the front layer wins the overlap', async ({ page }) => {
