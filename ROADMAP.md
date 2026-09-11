@@ -12,7 +12,7 @@ a time, with sign-off before the next one starts.
 | Stage | Scope | State |
 | ----- | ----- | ----- |
 | 0 | Foundation, test harness, CI, Pages deploy | ✅ Done |
-| 1 | Sticker specs, geometry, frame planning, byte-budget search | ⬜ Not started |
+| 1 | Sticker specs, geometry, frame planning, byte-budget search | ✅ Done |
 | 2 | Image → static sticker export | ⬜ Not started |
 | 3 | Text overlay editor | ⬜ Not started |
 | 4 | ffmpeg.wasm integration and video frame extraction | ⬜ Not started |
@@ -72,14 +72,31 @@ and therefore no COOP/COEP headers — GitHub Pages cannot set those.
 - [x] GitHub Actions: build and deploy to GitHub Pages on `main`
 - [x] `ROADMAP.md` as the tracking document
 
-### Stage 1 — Sticker specs and core maths
+### Stage 1 — Sticker specs and core maths ✅
 
-- [ ] Declarative spec table for all five outputs, with validators
-- [ ] Fit / crop / letterbox geometry for arbitrary source aspect ratios
-- [ ] Frame planning: trim window, frame rate and frame count
-- [ ] Byte-budget search: pure, encoder-agnostic, driven by an injected encode fn
-- [ ] WebP and WebM header parsers so tests can assert real output properties
-- [ ] Unit tests covering each of the above
+- [x] Declarative spec table for all five outputs (`src/core/specs.ts`)
+- [x] Fit / crop / letterbox geometry for arbitrary source aspect ratios
+      (`src/core/geometry.ts`)
+- [x] Frame planning: trim window, frame rate and frame count
+      (`src/core/framePlan.ts`)
+- [x] Byte-budget search: pure, encoder-agnostic, driven by an injected encode
+      function (`src/core/budget.ts`)
+- [x] WebP, WebM and PNG header parsers (`src/core/formats/`)
+- [x] Compliance checker that validates a file against a target by reading the
+      bytes, not by trusting encoder settings (`src/core/compliance.ts`)
+- [x] 219 unit tests, including cross-module specs asserting that what the
+      planners decide is what the compliance checker accepts
+
+Notes on the design:
+
+- **The budget search is a binary search, not a scan.** Candidates are supplied
+  worst-last in quality order and probed by lower-bound binary search, so the
+  best fitting candidate is found in O(log n) encodes. Real encoders are only
+  approximately monotonic, so the returned result is always a candidate that
+  was actually measured under the limit rather than an extrapolation.
+- **Parsers exist so tests can distrust the encoder.** Asserting that ffmpeg
+  was asked for 30 fps proves nothing; the parsers let later stages assert what
+  the produced file actually contains.
 
 ### Stage 2 — Image → static sticker
 
