@@ -305,49 +305,29 @@ test('an animated WebP fixture encodes and parses', async ({ page }) => {
   expect(info.height).toBe(FIXTURE_SIZE.height);
 });
 
-test('the realtime speed clamp keeps libvpx from crashing the worker', async ({ page }) => {
-  // A regression guard for MAX_REALTIME_CPU_USED. Asking the builder for the
-  // fastest possible realtime encode must produce a command line that this
-  // wasm build survives; without the clamp this run dies with "memory access
-  // out of bounds" partway through the first frame.
+test('the fixture WebM this app muxes is decodable by ffmpeg', async ({ page }) => {
+  // The app writes its own WebM container, because ffmpeg cannot encode VP9
+  // here. ffmpeg reading that container back is the check that it is correct.
   await harness(page);
+  const fixture = await makeFixture(page);
 
-  const result = await page.evaluate(async (frames) => {
-    const names = frames.map((_, i) => `frame-${String(i + 1).padStart(4, '0')}.png`);
-    return await window.__sticker!.execRawWithWebMArgs({
-      inputs: names.map((name, i) => ({ name, base64: frames[i] as string })),
+  const result = await page.evaluate(async (base64) => {
+    const plan = window.__sticker!.planFrames({
+      sourceDurationMs: 1000,
       frameRate: 8,
-      crf: 40,
-      deadline: 'realtime',
-      cpuUsed: 8,
+      maxDurationMs: 3000,
+      maxFrameRate: 30,
     });
-  }, FIXTURE_FRAMES);
-
-  expect(result.error, result.logs.slice(-6).join('\n')).toBeNull();
-  expect(result.ok).toBe(true);
-
-  const info = parseWebM(Buffer.from(result.outputs[0]!.base64, 'base64'));
-  expect(info.video?.codecId).toBe('V_VP9');
-  expect(info.videoFrameCount).toBe(FIXTURE_COLOURS.length);
-});
-
-test('VP9 keeps the alpha channel', async ({ page }) => {
-  await harness(page);
-
-  const result = await page.evaluate(async (frames) => {
-    const names = frames.map((_, i) => `frame-${String(i + 1).padStart(4, '0')}.png`);
-    return await window.__sticker!.execRawWithWebMArgs({
-      inputs: names.map((name, i) => ({ name, base64: frames[i] as string })),
-      frameRate: 8,
-      crf: 40,
-      deadline: 'good',
-      cpuUsed: 4,
+    return await window.__sticker!.extract({
+      base64,
+      fileName: 'fixture.webm',
+      mimeType: 'video/webm',
+      plan,
+      size: { width: 64, height: 48 },
     });
-  }, FIXTURE_FRAMES);
+  }, fixture.base64);
 
-  expect(result.error).toBeNull();
-  // The pixel format is what carries alpha through to Telegram.
-  expect(result.logs.join('\n')).toContain('yuva420p');
+  expect(result.frameCount).toBe(FIXTURE_COLOURS.length);
 });
 
 test('a file that is not a video fails with a readable message', async ({ page }) => {

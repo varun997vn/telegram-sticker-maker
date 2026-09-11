@@ -137,6 +137,64 @@ export function planFramesForSpec(spec: StickerSpec, input: SpecFramePlanInput):
   });
 }
 
+/**
+ * Evenly spaced indices for resampling a frame sequence to a lower count.
+ *
+ * Lowering the frame rate during a budget search must not mean extracting and
+ * compositing the whole video again. Picking a subset of the frames already in
+ * hand gives the same result for a fraction of the work, and spreads the
+ * chosen frames across the whole clip rather than truncating it.
+ */
+export function selectFrameIndices(sourceCount: number, targetCount: number): number[] {
+  if (!Number.isInteger(sourceCount) || sourceCount < 1) {
+    throw new RangeError(`sourceCount must be a positive integer, got ${sourceCount}`);
+  }
+  if (!Number.isInteger(targetCount) || targetCount < 1) {
+    throw new RangeError(`targetCount must be a positive integer, got ${targetCount}`);
+  }
+
+  const wanted = Math.min(targetCount, sourceCount);
+  const indices: number[] = [];
+
+  for (let i = 0; i < wanted; i += 1) {
+    indices.push(Math.min(sourceCount - 1, Math.round((i * sourceCount) / wanted)));
+  }
+  return indices;
+}
+
+/** The next rate down the ladder from the one given, or null at the bottom. */
+export function nextFrameRateDown(frameRate: number): number | null {
+  const lower = FRAME_RATE_LADDER.filter((rate) => rate < frameRate);
+  return lower[0] ?? null;
+}
+
+/**
+ * The highest ladder rate expected to fit, given a measured size at a known
+ * rate. Output size scales roughly with frame count, so this usually lands on
+ * the right rung immediately instead of walking down one at a time — and each
+ * rung costs several seconds of single-threaded encoding.
+ */
+export function estimateFrameRateForBudget(
+  measuredRate: number,
+  measuredBytes: number,
+  budgetBytes: number,
+): number | null {
+  if (measuredBytes <= 0) return null;
+
+  // Aim slightly under the budget: the relationship is approximate, and
+  // overshooting costs another whole round of encoding.
+  const target = measuredRate * (budgetBytes / measuredBytes) * 0.9;
+
+  // The ladder runs fastest first, so the first rung at or below the estimate
+  // is the highest rate that should fit.
+  const lower = FRAME_RATE_LADDER.filter((rate) => rate < measuredRate);
+  if (lower.length === 0) return null;
+
+  // A target below every rung means even the slowest rate is a stretch; go
+  // there rather than stepping down one rung at a time towards it.
+  return lower.find((rate) => rate <= target) ?? (lower.at(-1) as number);
+}
+
 /** Frame rates worth trying for a target, best first, never above its ceiling. */
 export function frameRateLadderFor(spec: StickerSpec): readonly number[] {
   const ceiling = spec.maxFrameRate ?? FRAME_RATE_LADDER[0];

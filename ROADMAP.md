@@ -16,7 +16,7 @@ a time, with sign-off before the next one starts.
 | 2 | Image → static sticker export | ✅ Done |
 | 3 | Text overlay editor | ✅ Done |
 | 4 | ffmpeg.wasm integration and video frame extraction | ✅ Done |
-| 5 | Animated sticker export | ⬜ Not started |
+| 5 | Animated sticker export | ✅ Done |
 | 6 | Sticker pack export | ⬜ Not started |
 | 7 | Polish, docs, accessibility | ⬜ Not started |
 | 8 | Background removal (optional) | ⬜ Not started |
@@ -186,13 +186,46 @@ Notes on the design:
   `harness.html` is emitted only when `INCLUDE_TEST_HARNESS=1`, so the
   deployed site never carries a page that exposes internals.
 
-### Stage 5 — Animated sticker export
+### Stage 5 — Animated sticker export ✅
 
-- [ ] Telegram WebM / VP9 export with alpha
-- [ ] WhatsApp animated WebP export
-- [ ] Budget search wired to the real encoder
-- [ ] Trim, crop and frame-rate controls with a live preview
-- [ ] End-to-end tests asserting the 256 KB / 500 KB caps, duration and size
+- [x] Telegram WebM / VP9 export, encoded by the browser and muxed by this app
+- [x] WhatsApp animated WebP export, encoded by ffmpeg
+- [x] Budget search wired to both real encoders, dropping quality first and
+      frame rate second
+- [x] Video input, trim window, frame-rate choice and a live preview of the
+      finished sticker
+- [x] 24 browser tests covering the encoder and the interface it sits behind
+
+**ffmpeg cannot encode VP9 here.** The libvpx inside @ffmpeg/core 0.12.10 traps
+with "memory access out of bounds" on any non-trivial input. Measured across
+the option space: `-crf` alone crashes it, `-cpu-used` of 2 or more crashes it,
+`-deadline realtime` crashes it, and at 512×512 with real content even plain
+defaults crash. Flat single-colour frames encode fine, which is why the fault
+only appears once real video reaches it.
+
+Telegram video stickers are therefore encoded by the browser's own
+`VideoEncoder`, which handles VP9 natively, and muxed into WebM by
+`src/core/formats/webmWriter.ts`. The muxer is checked against the Stage 1
+parser, and end to end by ffmpeg successfully decoding the files it writes.
+
+The cost is transparency: no browser reports support for `alpha: "keep"` on
+VP9. Telegram's video stickers keep the source aspect ratio rather than being
+padded into a square, so the app never adds transparency of its own — only a
+source that is itself transparent loses anything. WhatsApp's animated WebP
+keeps its alpha, since that path still goes through ffmpeg.
+
+Other notes:
+
+- **The size dial for VP9 is bitrate, not quality.** That suits a hard byte
+  budget better than a quality setting: the bitrate that exactly fills the
+  budget is a straightforward calculation, and the ladder below it absorbs the
+  encoder's overshoot.
+- **Lowering the frame rate resamples frames already in hand.** Re-extracting
+  and re-compositing for each rate would multiply the slowest part of the job;
+  picking a subset spreads the chosen frames across the whole clip instead.
+- **Animated exports run on request, not on every edit.** They take seconds and
+  fetch a 32 MB engine, so each card generates only when asked, reports its
+  phase while working, and can be cancelled.
 
 ### Stage 6 — Sticker pack export
 

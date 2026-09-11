@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react';
 import { outputSize } from '../core/geometry.ts';
 import type { FitMode } from '../core/geometry.ts';
-import type { ImageSource } from '../core/imageSource.ts';
+import type { DrawableSource } from '../core/render/composite.ts';
 import { get2dContext, resizeCanvas } from '../core/render/canvas.ts';
 import { drawStickerFrame } from '../core/render/sticker.ts';
 import type { StickerSpec } from '../core/specs.ts';
 import type { TextLayer } from '../core/text/model.ts';
 
 interface StickerPreviewProps {
-  readonly source: ImageSource;
+  readonly source: DrawableSource;
   readonly spec: StickerSpec;
   readonly fit: FitMode;
   readonly layers: readonly TextLayer[];

@@ -9,13 +9,19 @@
  * It is excluded from production builds: only a build with
  * INCLUDE_TEST_HARNESS set emits it. See vite.config.ts.
  */
-import { buildEncodeAnimatedWebPArgs, buildEncodeWebMArgs, frameFileNames } from './core/ffmpeg/args.ts';
+import { encodeAnimatedSticker } from './core/encode/animatedSticker.ts';
+import { encodeVp9WebM } from './core/encode/vp9Encoder.ts';
+import { buildEncodeAnimatedWebPArgs, frameFileNames } from './core/ffmpeg/args.ts';
 import { extractFrames, releaseFrames } from './core/ffmpeg/extractFrames.ts';
 import { coreUrls, isFFmpegLoaded, loadFFmpeg, recentLogs, unloadFFmpeg } from './core/ffmpeg/loader.ts';
 import { runFFmpeg } from './core/ffmpeg/run.ts';
 import { planFrames } from './core/framePlan.ts';
 import type { FramePlan } from './core/framePlan.ts';
 import type { Size } from './core/geometry.ts';
+import { getSpec } from './core/specs.ts';
+import type { StickerTargetId } from './core/specs.ts';
+import type { TextLayer } from './core/text/model.ts';
+import { createTextLayer } from './core/text/operations.ts';
 import { loadVideoSource } from './core/videoSource.ts';
 
 function toBase64(bytes: Uint8Array): string {
@@ -64,20 +70,38 @@ export interface HarnessApi {
     args: string[];
     outputs: string[];
   }): Promise<{ ok: boolean; error: string | null; outputs: { name: string; base64: string }[]; logs: string[] }>;
-  /** Run the app's own WebM command line, so its arguments are exercised as shipped. */
-  execRawWithWebMArgs(options: {
-    inputs: { name: string; base64: string }[];
-    frameRate: number;
-    crf: number;
-    deadline?: 'best' | 'good' | 'realtime';
-    cpuUsed?: number;
-  }): Promise<{ ok: boolean; error: string | null; outputs: { name: string; base64: string }[]; logs: string[] }>;
   /** Probe a base64 video the way the app probes a user's file. */
   probe(options: {
     base64: string;
     fileName: string;
     mimeType: string;
   }): Promise<{ width: number; height: number; durationMs: number }>;
+  /** Run a full animated export and report what the encoder produced. */
+  encodeAnimated(options: {
+    base64: string;
+    fileName: string;
+    mimeType: string;
+    targetId: StickerTargetId;
+    fit?: 'contain' | 'cover';
+    trimStartMs?: number;
+    trimEndMs?: number;
+    frameRate?: number;
+    text?: Partial<Omit<TextLayer, 'id'>>;
+  }): Promise<{
+    base64: string;
+    byteLength: number;
+    maxBytes: number;
+    width: number;
+    height: number;
+    frameRate: number;
+    frameCount: number;
+    quality: number;
+    attempts: number;
+    withinBudget: boolean;
+    compliant: boolean;
+    issues: string[];
+    phases: string[];
+  }>;
   /** Extract frames from a base64 video and report what came back. */
   extract(options: {
     base64: string;
@@ -110,26 +134,30 @@ const api: HarnessApi = {
   planFrames,
 
   async encodeFixture({ frames, frameRate, format, quality = 80 }) {
+    const decoded = frames.map(fromBase64);
+
+    if (format === 'webm') {
+      // Built with the app's own encoder and muxer. ffmpeg then has to decode
+      // the result during extraction, which is a strong check on the muxer.
+      const first = await createImageBitmap(new Blob([decoded[0] as BlobPart], { type: 'image/png' }));
+      const { width, height } = first;
+      first.close();
+
+      const data = await encodeVp9WebM({
+        frames: decoded,
+        width,
+        height,
+        frameRate,
+        bitrate: 1_500_000,
+      });
+      return { base64: toBase64(data), byteLength: data.byteLength };
+    }
+
     const names = frameFileNames(frames.length);
-    const output = format === 'webm' ? 'fixture.webm' : 'fixture.webp';
-
-    const args =
-      format === 'webm'
-        ? // `realtime` keeps a fixture encode to seconds rather than minutes;
-          // the export path picks its own quality settings.
-          buildEncodeWebMArgs({
-            frameRate,
-            crf: 40,
-            deadline: 'realtime',
-            cpuUsed: 8,
-            outputFile: output,
-          })
-        : buildEncodeAnimatedWebPArgs({ frameRate, quality, outputFile: output });
-
     const { files } = await runFFmpeg({
-      inputs: names.map((name, index) => ({ name, data: fromBase64(frames[index] as string) })),
-      args,
-      outputs: [output],
+      inputs: names.map((name, index) => ({ name, data: decoded[index] as Uint8Array })),
+      args: buildEncodeAnimatedWebPArgs({ frameRate, quality, outputFile: 'fixture.webp' }),
+      outputs: ['fixture.webp'],
       failureMessage: 'Fixture encode failed',
     });
 
@@ -161,24 +189,56 @@ const api: HarnessApi = {
     }
   },
 
-  async execRawWithWebMArgs({ inputs, frameRate, crf, deadline, cpuUsed }) {
-    return await api.execRaw({
-      inputs,
-      args: buildEncodeWebMArgs({
-        frameRate,
-        crf,
-        ...(deadline ? { deadline } : {}),
-        ...(cpuUsed === undefined ? {} : { cpuUsed }),
-        outputFile: 'clamped.webm',
-      }),
-      outputs: ['clamped.webm'],
-    });
-  },
-
   async probe({ base64, fileName, mimeType }) {
     const file = new File([fromBase64(base64) as BlobPart], fileName, { type: mimeType });
     const source = await loadVideoSource(file);
     return { width: source.width, height: source.height, durationMs: source.durationMs };
+  },
+
+  async encodeAnimated({
+    base64,
+    fileName,
+    mimeType,
+    targetId,
+    fit = 'contain',
+    trimStartMs,
+    trimEndMs,
+    frameRate,
+    text,
+  }) {
+    const file = new File([fromBase64(base64) as BlobPart], fileName, { type: mimeType });
+    const spec = getSpec(targetId);
+    const source = await loadVideoSource(file);
+    const phases: string[] = [];
+
+    const result = await encodeAnimatedSticker({
+      source,
+      spec,
+      fit,
+      layers: text ? [createTextLayer(text)] : [],
+      ...(trimStartMs === undefined ? {} : { trimStartMs }),
+      ...(trimEndMs === undefined ? {} : { trimEndMs }),
+      ...(frameRate === undefined ? {} : { frameRate }),
+      onProgress: ({ phase }) => {
+        if (phases.at(-1) !== phase) phases.push(phase);
+      },
+    });
+
+    return {
+      base64: toBase64(result.bytes),
+      byteLength: result.byteLength,
+      maxBytes: spec.maxBytes,
+      width: result.size.width,
+      height: result.size.height,
+      frameRate: result.frameRate,
+      frameCount: result.frameCount,
+      quality: result.quality,
+      attempts: result.attempts,
+      withinBudget: result.withinBudget,
+      compliant: result.compliance.ok,
+      issues: result.compliance.issues.map((issue) => issue.message),
+      phases,
+    };
   },
 
   async extract({ base64, fileName, mimeType, plan, size, pad = false, crop = null }) {

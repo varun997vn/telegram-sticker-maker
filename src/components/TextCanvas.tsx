@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { Size } from '../core/geometry.ts';
 import type { FitMode } from '../core/geometry.ts';
-import type { ImageSource } from '../core/imageSource.ts';
+import type { DrawableSource } from '../core/render/composite.ts';
 import { get2dContext, resizeCanvas } from '../core/render/canvas.ts';
 import { drawStickerFrame } from '../core/render/sticker.ts';
 import { layoutBounds, layoutTextLayer } from '../core/text/layout.ts';
@@ -18,7 +18,7 @@ import { contextMeasurer } from '../core/text/render.ts';
 export const DESIGN_SIZE: Size = { width: 512, height: 512 };
 
 interface TextCanvasProps {
-  readonly source: ImageSource;
+  readonly source: DrawableSource;
   readonly fit: FitMode;
   readonly layers: readonly TextLayer[];
   readonly selectedId: string | null;
