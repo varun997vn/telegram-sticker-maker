@@ -12,6 +12,8 @@ import { PackPanel } from './components/PackPanel.tsx';
 import type { PackBuildState } from './components/PackPanel.tsx';
 import { TrimControls } from './components/TrimControls.tsx';
 import { APP_NAME, APP_TAGLINE } from './core/appInfo.ts';
+import { ASSUME_CAPABLE, detectCapabilities, unsupportedReason } from './core/capabilities.ts';
+import type { Capabilities } from './core/capabilities.ts';
 import { encodeAnimatedSticker } from './core/encode/animatedSticker.ts';
 import { encodeStaticSticker } from './core/encode/staticSticker.ts';
 import { stickerFileName } from './core/fileNames.ts';
@@ -39,6 +41,7 @@ import {
   validatePack,
 } from './core/pack/model.ts';
 import type { StickerPack } from './core/pack/model.ts';
+import { createSampleFile } from './core/sample.ts';
 import { captureVideoPoster } from './core/videoPoster.ts';
 import type { DrawableSource } from './core/render/composite.ts';
 
@@ -83,6 +86,7 @@ export function App() {
   const [animated, setAnimated] = useState<AnimatedStates>({});
   const [pack, setPack] = useState<StickerPack>(EMPTY_PACK);
   const [packBuild, setPackBuild] = useState<PackBuildState>({ status: 'idle' });
+  const [capabilities, setCapabilities] = useState<Capabilities>(ASSUME_CAPABLE);
 
   const video = source && isVideo(source) ? source : null;
   // Video layouts are drawn against a still frame; images are drawn directly.
@@ -98,6 +102,18 @@ export function App() {
   const exportKey = drawable ? `${sourceGeneration}|${fit}|${describeLayers(layers)}` : '';
   const exports = session.key === exportKey ? session.states : {};
   const selected = findLayer(layers, selectedId);
+
+  // Checked once, so an unsupported export explains itself before the user
+  // spends a minute waiting for it to fail.
+  useEffect(() => {
+    let current = true;
+    void detectCapabilities().then((detected) => {
+      if (current) setCapabilities(detected);
+    });
+    return () => {
+      current = false;
+    };
+  }, []);
 
   const currentSource = useRef<StickerSource | null>(null);
   const running = useRef<Partial<Record<StickerTargetId, AbortController>>>({});
@@ -301,8 +317,14 @@ export function App() {
         <p className="app__tagline">{APP_TAGLINE}</p>
       </header>
 
+      {!capabilities.webpEncode && (
+        <p className="app__error" role="alert" data-testid="capability-warning">
+          {unsupportedReason(capabilities, 'webp')}
+        </p>
+      )}
+
       <section className="app__stage" data-testid="stage">
-        <DropZone onFile={handleFile} />
+        <DropZone onFile={handleFile} onSample={() => void createSampleFile().then(handleFile)} />
         {error && (
           <p className="app__error" role="alert" data-testid="error">
             {error}
@@ -403,6 +425,10 @@ export function App() {
                     spec={STICKER_SPECS[id]}
                     state={animated[id] ?? { status: 'idle' }}
                     fileName={stickerFileName(source?.fileName ?? 'sticker', STICKER_SPECS[id])}
+                    unsupportedReason={unsupportedReason(
+                      capabilities,
+                      STICKER_SPECS[id].container,
+                    )}
                     onGenerate={() => void generate(id)}
                     onCancel={() => running.current[id]?.abort()}
                     {...(animated[id]?.status === 'done'

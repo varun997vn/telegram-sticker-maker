@@ -18,7 +18,7 @@ a time, with sign-off before the next one starts.
 | 4 | ffmpeg.wasm integration and video frame extraction | ✅ Done |
 | 5 | Animated sticker export | ✅ Done |
 | 6 | Sticker pack export | ✅ Done |
-| 7 | Polish, docs, accessibility | ⬜ Not started |
+| 7 | Polish, docs, accessibility | ✅ Done |
 | 8 | Background removal (optional) | ⬜ Not started |
 
 ## Target formats
@@ -258,13 +258,36 @@ Notes on the design:
   fewer than three, so that is a warning; a sticker over its byte limit is an
   error and blocks the build.
 
-### Stage 7 — Polish
+### Stage 7 — Polish ✅
 
-- [ ] Responsive layout down to phone width
-- [ ] Keyboard navigation and screen-reader labels
-- [ ] Error states for unsupported files and failed encodes
-- [ ] README with usage and browser-support notes
-- [ ] Sample assets
+- [x] Responsive down to 360 px, checked by measuring the real page rather than
+      reading the stylesheet
+- [x] The layout surface is focusable and moves the selected layer with the
+      arrow keys; Escape deselects; every control has an accessible name
+- [x] Capability detection at startup, so an export this browser cannot do says
+      so on the control instead of failing partway through
+- [x] An error boundary, so an unexpected failure shows something actionable
+      rather than a blank page
+- [x] Error states for unreadable files that keep the sticker already being
+      edited
+- [x] A built-in example, drawn at runtime rather than shipped as a file
+- [x] README covering usage, formats, installation, browser support and privacy
+
+Notes on the design:
+
+- **Capability detection had a bug of its own, found by a test.**
+  `OffscreenCanvas.convertToBlob` throws unless a rendering context has been
+  obtained first, so the WebP probe reported failure on every browser and
+  raised a warning that was never true. The suite now asserts that a capable
+  browser sees no warning at all, which is the case that was silently wrong.
+- **Layout is tested by measurement.** The responsive specs walk the DOM at
+  each viewport looking for anything whose right edge passes the viewport, and
+  name the offenders — a stylesheet assertion would not have caught a caption
+  that only overflows once it has content.
+- **One flaky assertion was replaced rather than retried.** A test counted
+  pixels inside a band whose position came from assumed font metrics. It now
+  measures where the text actually starts, which is robust to a different font
+  and to the noise a lossy encode adds.
 
 ### Stage 8 — Background removal (optional)
 

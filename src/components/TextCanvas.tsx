@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 import type { Size } from '../core/geometry.ts';
 import type { FitMode } from '../core/geometry.ts';
 import type { DrawableSource } from '../core/render/composite.ts';
@@ -25,6 +25,10 @@ interface TextCanvasProps {
   readonly onSelect: (id: string | null) => void;
   readonly onMove: (id: string, x: number, y: number) => void;
 }
+
+/** One arrow press moves a layer this far, as a fraction of the canvas. */
+const NUDGE = 0.01;
+const NUDGE_FAST = 0.05;
 
 interface DragState {
   readonly pointerId: number;
@@ -118,6 +122,35 @@ export function TextCanvas({
     onMove(drag.id, point.x - drag.grabX, point.y - drag.grabY);
   };
 
+  /**
+   * Dragging is the natural way to place text, but it cannot be the only way:
+   * arrow keys move the selected layer, so the editor is usable without a
+   * pointer at all.
+   */
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLCanvasElement>) => {
+    if (event.key === 'Escape') {
+      onSelect(null);
+      return;
+    }
+
+    const layer = layers.find((candidate) => candidate.id === selectedId);
+    if (!layer) return;
+
+    const step = event.shiftKey ? NUDGE_FAST : NUDGE;
+    const moves: Record<string, readonly [number, number]> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+
+    const move = moves[event.key];
+    if (!move) return;
+
+    event.preventDefault();
+    onMove(layer.id, layer.x + move[0], layer.y + move[1]);
+  };
+
   const endDrag = (event: ReactPointerEvent<HTMLCanvasElement>) => {
     if (!drag || drag.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -134,6 +167,14 @@ export function TextCanvas({
       data-selected={selectedId ?? ''}
       width={DESIGN_SIZE.width}
       height={DESIGN_SIZE.height}
+      tabIndex={0}
+      role="application"
+      aria-label={
+        layers.length === 0
+          ? 'Sticker layout. Add a text layer to caption it.'
+          : `Sticker layout with ${layers.length} text layer${layers.length === 1 ? '' : 's'}. Select a layer, then use the arrow keys to move it.`
+      }
+      onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={endDrag}
