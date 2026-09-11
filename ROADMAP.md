@@ -13,7 +13,7 @@ a time, with sign-off before the next one starts.
 | ----- | ----- | ----- |
 | 0 | Foundation, test harness, CI, Pages deploy | ✅ Done |
 | 1 | Sticker specs, geometry, frame planning, byte-budget search | ✅ Done |
-| 2 | Image → static sticker export | ⬜ Not started |
+| 2 | Image → static sticker export | ✅ Done |
 | 3 | Text overlay editor | ⬜ Not started |
 | 4 | ffmpeg.wasm integration and video frame extraction | ⬜ Not started |
 | 5 | Animated sticker export | ⬜ Not started |
@@ -98,13 +98,31 @@ Notes on the design:
   was asked for 30 fps proves nothing; the parsers let later stages assert what
   the produced file actually contains.
 
-### Stage 2 — Image → static sticker
+### Stage 2 — Image → static sticker ✅
 
-- [ ] File input: drag-and-drop, file picker, paste
-- [ ] Canvas composition at 512×512 with transparent background
-- [ ] WebP export through `canvas.toBlob`, quality-searched to the size cap
-- [ ] Per-target download buttons with the resulting file size shown
-- [ ] End-to-end test asserting real output bytes, dimensions and size caps
+- [x] File input by drag-and-drop, file picker and clipboard paste, with EXIF
+      orientation applied so phone photos are not silently rotated
+- [x] Canvas composition with a transparent background and a contain/cover
+      framing toggle
+- [x] WebP export through the canvas, quality-searched down to the size cap
+- [x] Per-target cards showing real size, dimensions and chosen quality, each
+      validated by the Stage 1 compliance checker before it is offered
+- [x] Browser tests that upload a real PNG, download the produced sticker and
+      re-parse the saved bytes
+
+Notes on the design:
+
+- **Still exports never touch ffmpeg.** Browsers encode WebP natively, so a
+  still sticker is instant and the 32 MB wasm core stays unfetched until
+  someone exports an animation.
+- **Results are keyed to the settings that produced them.** A card falls back
+  to "Encoding…" in the same commit that changes the image or the framing, so
+  a stale size is never shown for a frame — and a test can never read one and
+  believe it.
+- **Test fixtures are generated, not committed.** `tests/helpers/pngEncoder.ts`
+  is a small RGBA PNG encoder, which keeps real images out of the repository
+  and lets a test ask for input with specific properties — a smooth gradient
+  that compresses easily, or noise that does not.
 
 ### Stage 3 — Text overlay editor
 
