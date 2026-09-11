@@ -8,6 +8,8 @@ import { StickerPreview } from './components/StickerPreview.tsx';
 import { TextCanvas } from './components/TextCanvas.tsx';
 import { TextLayerControls } from './components/TextLayerControls.tsx';
 import { TextLayerList } from './components/TextLayerList.tsx';
+import { PackPanel } from './components/PackPanel.tsx';
+import type { PackBuildState } from './components/PackPanel.tsx';
 import { TrimControls } from './components/TrimControls.tsx';
 import { APP_NAME, APP_TAGLINE } from './core/appInfo.ts';
 import { encodeAnimatedSticker } from './core/encode/animatedSticker.ts';
@@ -27,6 +29,16 @@ import {
   removeLayer,
   updateLayer,
 } from './core/text/operations.ts';
+import { buildPack } from './core/pack/buildPack.ts';
+import {
+  EMPTY_PACK,
+  addSticker,
+  moveSticker,
+  removeSticker,
+  setStickerEmojis,
+  validatePack,
+} from './core/pack/model.ts';
+import type { StickerPack } from './core/pack/model.ts';
 import { captureVideoPoster } from './core/videoPoster.ts';
 import type { DrawableSource } from './core/render/composite.ts';
 
@@ -69,6 +81,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<ExportSession>(EMPTY_SESSION);
   const [animated, setAnimated] = useState<AnimatedStates>({});
+  const [pack, setPack] = useState<StickerPack>(EMPTY_PACK);
+  const [packBuild, setPackBuild] = useState<PackBuildState>({ status: 'idle' });
 
   const video = source && isVideo(source) ? source : null;
   // Video layouts are drawn against a still frame; images are drawn directly.
@@ -228,6 +242,45 @@ export function App() {
     [video, fit, layers, clip],
   );
 
+  /** Copy a finished export into the pack; the bytes are already in hand. */
+  const addToPack = useCallback(
+    (
+      targetId: StickerTargetId,
+      bytes: Uint8Array,
+      size: { width: number; height: number },
+    ) => {
+      setPack((previous) =>
+        addSticker(previous, {
+          targetId,
+          bytes,
+          width: size.width,
+          height: size.height,
+          sourceName: currentSource.current?.fileName ?? 'sticker',
+        }),
+      );
+      // Any archive built before this no longer matches the pack.
+      setPackBuild({ status: 'idle' });
+    },
+    [],
+  );
+
+  const changePack = useCallback((next: (previous: StickerPack) => StickerPack) => {
+    setPack(next);
+    setPackBuild({ status: 'idle' });
+  }, []);
+
+  const build = useCallback(async () => {
+    setPackBuild({ status: 'building' });
+    try {
+      setPackBuild({ status: 'done', built: await buildPack({ pack }) });
+    } catch (cause) {
+      setPackBuild({
+        status: 'failed',
+        message: cause instanceof Error ? cause.message : 'Could not build the archive',
+      });
+    }
+  }, [pack]);
+
   const updateClip = useCallback((patch: Partial<Clip>) => {
     setClip((previous) => {
       const next = { ...previous, ...patch };
@@ -352,6 +405,15 @@ export function App() {
                     fileName={stickerFileName(source?.fileName ?? 'sticker', STICKER_SPECS[id])}
                     onGenerate={() => void generate(id)}
                     onCancel={() => running.current[id]?.abort()}
+                    {...(animated[id]?.status === 'done'
+                      ? {
+                          onAddToPack: () => {
+                            const state = animated[id];
+                            if (state?.status !== 'done') return;
+                            addToPack(id, state.result.bytes, state.result.size);
+                          },
+                        }
+                      : {})}
                   />
                 ))
               : STATIC_TARGETS.map((id) => (
@@ -360,6 +422,15 @@ export function App() {
                     spec={STICKER_SPECS[id]}
                     state={exports[id] ?? { status: 'encoding' }}
                     fileName={stickerFileName(source?.fileName ?? 'sticker', STICKER_SPECS[id])}
+                    {...(exports[id]?.status === 'done'
+                      ? {
+                          onAddToPack: () => {
+                            const state = exports[id];
+                            if (state?.status !== 'done') return;
+                            addToPack(id, state.result.bytes, state.result.size);
+                          },
+                        }
+                      : {})}
                   >
                     <StickerPreview
                       source={drawable}
@@ -372,6 +443,19 @@ export function App() {
           </section>
         </>
       )}
+
+      <section className="pack-section" aria-label="Pack">
+        <PackPanel
+          pack={pack}
+          state={packBuild}
+          issues={validatePack(pack)}
+          onRename={(patch) => changePack((previous) => ({ ...previous, ...patch }))}
+          onEmojis={(id, value) => changePack((previous) => setStickerEmojis(previous, id, value))}
+          onMove={(id, direction) => changePack((previous) => moveSticker(previous, id, direction))}
+          onRemove={(id) => changePack((previous) => removeSticker(previous, id))}
+          onBuild={() => void build()}
+        />
+      </section>
     </main>
   );
 }

@@ -15,6 +15,7 @@ interface AnimatedExportCardProps {
   readonly fileName: string;
   readonly onGenerate: () => void;
   readonly onCancel: () => void;
+  readonly onAddToPack?: () => void;
 }
 
 const PHASE_LABELS: Record<AnimatedProgress['phase'], string> = {
@@ -59,6 +60,7 @@ export function AnimatedExportCard({
   fileName,
   onGenerate,
   onCancel,
+  onAddToPack,
 }: AnimatedExportCardProps) {
   const result = state.status === 'done' ? state.result : null;
   const url = useObjectUrl(result?.blob ?? null);
@@ -160,6 +162,16 @@ export function AnimatedExportCard({
           Download
         </a>
       </div>
+
+      <button
+        type="button"
+        className="card__secondary"
+        data-testid={`add-to-pack-${spec.id}`}
+        disabled={!ok || !onAddToPack}
+        onClick={() => onAddToPack?.()}
+      >
+        Add to pack
+      </button>
     </article>
   );
 }
