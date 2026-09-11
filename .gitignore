@@ -1,0 +1,18 @@
+node_modules/
+dist/
+coverage/
+*.local
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# ffmpeg.wasm core copied into public/ by scripts/sync-ffmpeg-core.mjs
+public/ffmpeg/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
