@@ -15,7 +15,7 @@ a time, with sign-off before the next one starts.
 | 1 | Sticker specs, geometry, frame planning, byte-budget search | ✅ Done |
 | 2 | Image → static sticker export | ✅ Done |
 | 3 | Text overlay editor | ✅ Done |
-| 4 | ffmpeg.wasm integration and video frame extraction | ⬜ Not started |
+| 4 | ffmpeg.wasm integration and video frame extraction | ✅ Done |
 | 5 | Animated sticker export | ⬜ Not started |
 | 6 | Sticker pack export | ⬜ Not started |
 | 7 | Polish, docs, accessibility | ⬜ Not started |
@@ -151,13 +151,40 @@ Notes on the design:
   the browser actually saved and counts pixels in a region, which is the only
   way to know a layer rendered where it was asked to.
 
-### Stage 4 — ffmpeg.wasm integration
+### Stage 4 — ffmpeg.wasm integration ✅
 
-- [ ] Lazy-loaded worker wrapper with progress reporting and cancellation
-- [ ] Same-origin hosting of the core files (copied into `public/` at build)
-- [ ] Typed argument builders for every encode the app performs
-- [ ] Video frame extraction at the planned frame rate and dimensions
-- [ ] Tests against a fixture video generated during the test run
+- [x] Lazy loader with download progress, cancellation and a single shared
+      instance (`src/core/ffmpeg/loader.ts`)
+- [x] Core files copied into `public/` at build time, so they are served from
+      our own origin instead of a CDN (`scripts/sync-ffmpeg-core.mjs`)
+- [x] Typed argument builders for extraction, VP9 WebM and animated WebP
+      (`src/core/ffmpeg/args.ts`), with 47 unit tests on the exact command lines
+- [x] A run primitive that always cleans up its temporary files
+      (`src/core/ffmpeg/run.ts`)
+- [x] Video probing without loading ffmpeg (`src/core/videoSource.ts`)
+- [x] Frame extraction at the planned rate, size, crop and padding
+- [x] 15 browser tests against real ffmpeg.wasm, using a fixture video built
+      during the run from known per-frame colours
+
+Notes on the design:
+
+- **`-deadline realtime` with `-cpu-used` of 4 or more crashes this wasm
+  build.** ffmpeg dies with "memory access out of bounds" partway through the
+  first frame. Measured: realtime is fine at 0 and 2, and crashes at 4, 5, 6, 7
+  and 8; `-deadline good` is unaffected at every speed. The argument builder
+  clamps realtime requests to the highest safe value, with unit tests on the
+  clamp and a browser test that runs the fastest realtime encode the builder
+  will emit and checks it survives.
+- **Every ffmpeg option goes before the output filename.** ffmpeg applies
+  options to the output that follows them, so an option appended after the
+  filename is silently read as configuration for a second output that does not
+  exist. A unit test asserts no flag ever trails the output.
+- **Fixture frames are distinct flat colours.** Extraction is then checked
+  frame by frame: wrong order, wrong rate or the wrong part of the source all
+  show up immediately as a wrong colour sequence.
+- **The browser suite drives the core through a separate entry point.**
+  `harness.html` is emitted only when `INCLUDE_TEST_HARNESS=1`, so the
+  deployed site never carries a page that exposes internals.
 
 ### Stage 5 — Animated sticker export
 
